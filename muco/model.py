@@ -1,5 +1,7 @@
 import sqlite3
+import apsw
 import os
+import hashlib
 
 from action import Action
 
@@ -50,8 +52,8 @@ class Model(object):
         self.conn.cursor().executescript(sql)
         
         
-    def file(self, path, insertIfMissing, folder_id=None):
-        self.log('file: path=%s, folder_id=%s'%(path, folder_id))
+    def file(self, path, insertIfMissing, folder_id=None, hashSum=None):
+        self.log('file: path=%s, folder_id=%s, insertIfMissing=%s'%(path, folder_id, insertIfMissing))
         
         if os.path.islink(path):
             # Ingnore links
@@ -76,8 +78,8 @@ class Model(object):
         # insert file
         if insertIfMissing:
             c = self.conn.cursor()
-            c.execute("insert into file (name, folder_id) values (?, ?)",
-                      (filename, folder_id))
+            c.execute("insert into file (name, folder_id, hash) values (?, ?, ?)",
+                      (filename, folder_id, hashSum))
             return folder_id, c.lastrowid
         else:
             return None, None
@@ -124,7 +126,6 @@ class Model(object):
             
         # No folder in db, do insert
         if not insertIfMissing:
-            print 'insertifmissing', insertIfMissing
             return None      
                 
         if parent_folder_id is None and not is_mount_point:
@@ -163,15 +164,56 @@ class Model(object):
         return {'files': noFiles, 'folders': noFolders}
     
     
+class _Hasher(object):
+    CHUNK_SIZE = 1000000
+    _hash = None
+    
+    def read_hash(self, filePath):
+        size = os.path.getsize(filePath)
+        print 'hash', filePath, size
+        pos = 0
+        h = hashlib.sha1()
+        with open(filePath, 'r') as f:
+            while True:
+                d = f.read(self.CHUNK_SIZE)
+                if not d: break
+                h.update(d)
+                pos += self.CHUNK_SIZE
+                yield pos*100/size, 'Hashing '+filePath
+                
+        self._hash = h.hexdigest()
+    
+        
+    def get_hash(self):
+        return self._hash
+    
     
 class ImportFilesAction(Action):
+    
     def __init__(self, path):
         self.path = path
+        self._hash = None
         
     def get_name(self):
         return 'Dateien importieren: %s'%self.path
+    
+    def import_file(self, path, folder_id):
+        _, file_id = self.model.file(path, False, folder_id)
+        if file_id:
+            return
 
-    def import_files(self, path, parent_folder_id):
+        h = _Hasher()
+        print 'start hash'
+        for info in h.read_hash(path):
+            yield info
+        print 'end hash'
+        _, file_id = self.model.file(path, True, folder_id, h.get_hash())
+        self._hash = None
+        if file_id is None:
+            raise Exception('Import failed: %s (%s)' % (path, folder_id))
+                
+ 
+    def import_folder(self, path, parent_folder_id):
         yield('?', path)
         folder_id = self.model.folder(path, True, parent_folder_id)
         if folder_id is None:
@@ -182,26 +224,22 @@ class ImportFilesAction(Action):
             if os.path.islink(el):
                 continue
             if os.path.isdir(el):
-                for info in self.import_files(el, folder_id):
+                for info in self.import_folder(el, folder_id):
                     yield info
 
             elif os.path.isfile(el):
-                _, file_id = self.model.file(el, True, folder_id)
-                if file_id is None:
-                    raise Exception('Import failed: %s (%s)' % (el, folder_id))
+                for info in self.import_file(el, parent_folder_id):
+                    yield info
     
     def run_action(self):
         self.model = Model(logger=printer).set_connection(get_connection())
         if os.path.isfile(self.path):
             folder_id = self.model.folder(os.path.dirname(self.path), True)
-            print folder_id
-            _, dbID = self.model.file(self.path, True, folder_id=folder_id)
-            if not dbID:
-                self.model.rollback()
-                raise Exception('Insert failed: %s'%self.path)
+            for info in self.import_file(self.path, folder_id):
+                yield info
             yield (100, self.path)
         else:
-            for info in self.import_files(self.path, None):
+            for info in self.import_folder(self.path, None):
                 yield info
         self.model.commit_and_close()
         yield('100', '')
@@ -242,6 +280,9 @@ class DeleteFilesAction(Action):
         
          
 dbPath = 'db01.sqlite'
+
+def get_connection(dbPath=dbPath):
+    return sqlite3.connect(dbPath)
 
 def get_connection(dbPath=dbPath):
     return sqlite3.connect(dbPath)
