@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 import sqlite3
 import apsw
 import os
@@ -13,6 +15,32 @@ def _one(cursor):
         return res[0]
     
 
+class DB_File(object):
+    ATTRIBUTES = frozenset(['id_', 'folder_id', 'name', 'hash_', 'hash_is_wrong'])
+
+    def __init__(self, kwargs):
+        if kwargs is None:
+            self._is_none = True
+        else:
+            self._is_none = False
+            for a in self.ATTRIBUTES:
+                try:
+                    setattr(self, a, kwargs[a])
+                except KeyError:
+                    raise AttributeError('Keyword arg "%s" is required'%a)
+
+    def __str__(self):
+        if self.is_none():
+            details = 'None'
+        else:
+            details = '%s [id=%s, folder_id=%s, hash=%s, is_hash_wrong=%s]'%(
+                self.name, self.id_, self.folder_id, self.hash_, self.hash_is_wrong)
+        return 'DB_File: '+details
+        
+    def is_none(self):
+        return self._is_none
+    
+    
 class Model(object):
     """
     Optimierungen:
@@ -52,12 +80,12 @@ class Model(object):
         self.conn.cursor().executescript(sql)
         
         
-    def file(self, path, insertIfMissing, folder_id=None, hashSum=None):
+    def file(self, path, insertIfMissing, folder_id=None, newHashSum=None):
         self.log('file: path=%s, folder_id=%s, insertIfMissing=%s'%(path, folder_id, insertIfMissing))
         
         if os.path.islink(path):
             # Ingnore links
-            return None, None
+            return DB_File(None)
         
         folder, filename = os.path.split(path)
                 
@@ -65,24 +93,32 @@ class Model(object):
         if folder_id is None:
             folder_id = self.folder(folder, False)
             if folder_id is None:
-                return None, None
+                return DB_File(None)
         
         # select file
         c = self.conn.cursor()
-        c.execute("select id from file where name = ? and folder_id = ?",
-                  (filename, folder_id))
-        file_id = _one(c)
-        if file_id is not None:
-            return folder_id, file_id
+        c.execute("""select id, folder_id, name, hash, hash_is_wrong from file 
+                     where name = ? and folder_id = ?""", (filename, folder_id))
+        row = c.fetchone()
+        if row is not None:
+            return DB_File(dict(id_=row[0], 
+                           folder_id=row[1],
+                           name=row[2],
+                           hash_=row[3],
+                           hash_is_wrong=True if row[4] else False))
 
         # insert file
         if insertIfMissing:
             c = self.conn.cursor()
             c.execute("insert into file (name, folder_id, hash) values (?, ?, ?)",
-                      (filename, folder_id, hashSum))
-            return folder_id, c.lastrowid
+                      (filename, folder_id, newHashSum))
+            return DB_File(dict(id_=c.lastrowid, 
+                           folder_id=folder_id,
+                           name=filename,
+                           hash_=newHashSum,
+                           hash_is_wrong=False))
         else:
-            return None, None
+            return DB_File(None)
         
     
     def folder(self, path, insertIfMissing, parent_folder_id=None):
@@ -138,19 +174,38 @@ class Model(object):
                     (folder, path, parent_folder_id, is_mount_point))
         return c.lastrowid
     
-    def delete_file(self, folder_id, file_id):
+    def delete_file(self, f):
         c = self.conn.cursor()
-        c.execute("delete from file where folder_id = ? and id = ?", (folder_id, file_id))
+        c.execute("delete from file where folder_id = ? and id = ?", (f.folder_id, f.id_))
         
     def get_child_folders(self, parent_folder_id):
         c = self.conn.cursor()
         c.execute("select id, full_path from folder where parent_folder_id = ?", (parent_folder_id, ))
         return c.fetchall()
     
+    def get_files(self, folder_id):
+        c = self.conn.cursor()
+        c.execute("select id, name, hash, hash_is_wrong from file where folder_id = ?", (folder_id, ))
+        files = []
+        for row in c.fetchall():
+            f = DB_File(
+                id_=row[0],
+                name=row[1],
+                hash_=row[2],
+                hash_is_wrong=True if row[3] else False
+            )
+            files.append(f)
+        return files
+    
+    def set_hash_is_wrong(self, f, is_wrong):
+        print 'set_hash_is_wrong', is_wrong
+        c = self.conn.cursor()
+        #is_wrong = 1 if is_wrong else 0
+        c.execute("update file set hash_is_wrong = ? where id = ?", (is_wrong, f.id_))
+                
     def delete_folder(self, folder_id):
         """ Will delete the files in this folder, then the foldern itself.
         Attention: Make sure, the given folder doesnt have any subfolders!"""
-        print folder_id
         c = self.conn.cursor()
         c.execute("delete from file where folder_id = ?", (folder_id, ))
         c.execute("delete from folder where id = ?", (folder_id, ))
@@ -164,7 +219,7 @@ class Model(object):
         return {'files': noFiles, 'folders': noFolders}
     
     
-class _Hasher(object):
+class Hasher(object):
     CHUNK_SIZE = 1000000
     _hash = None
     
@@ -192,24 +247,20 @@ class ImportFilesAction(Action):
     
     def __init__(self, path):
         self.path = path
-        self._hash = None
         
     def get_name(self):
         return 'Dateien importieren: %s'%self.path
     
     def import_file(self, path, folder_id):
-        _, file_id = self.model.file(path, False, folder_id)
-        if file_id:
+        f = self.model.file(path, False, folder_id)
+        if not f.is_none():
             return
 
-        h = _Hasher()
-        print 'start hash'
+        h = Hasher()
         for info in h.read_hash(path):
             yield info
-        print 'end hash'
-        _, file_id = self.model.file(path, True, folder_id, h.get_hash())
-        self._hash = None
-        if file_id is None:
+        f = self.model.file(path, True, folder_id=folder_id, newHashSum=h.get_hash())
+        if f.is_none():
             raise Exception('Import failed: %s (%s)' % (path, folder_id))
                 
  
@@ -263,10 +314,10 @@ class DeleteFilesAction(Action):
     def run_action(self):
         self.model = Model(logger=printer).set_connection(get_connection())
         if os.path.isfile(self.path):
-            folder_id, file_id = self.model.file(self.path, False)
-            if folder_id is None or file_id is None:
+            f = self.model.file(self.path, False)
+            if f.folder_id is None or f.id_ is None:
                 raise Exception('delete of file failed: %s' % (self.path))
-            self.model.delete_file(folder_id, file_id)
+            self.model.delete_file(f)
             yield (100, self.path)
         else:
             yield ('?', self.path)
@@ -277,8 +328,54 @@ class DeleteFilesAction(Action):
         yield('100', '')
     
             
+class CheckFilesAction(Action):
+    def __init__(self, path):
+        self.path = path
         
+    def get_name(self):
+        return u'Dateien prüfen: %s'%self.path
+
+    def check_file(self, filePath, f):
+        h = Hasher()
+        for info in h.read_hash(filePath):
+            yield info
+        if f.hash_ != h.get_hash():
+            self.model.set_hash_is_wrong(f, True)
+        else:
+            if f.hash_is_wrong:
+                self.model.set_hash_is_wrong(f, False)
+        
+    
+    def check_folder(self, folder_id):
+        child_folder_ids = self.model.get_child_folders(folder_id)
+        if child_folder_ids:
+            for child_id, full_path in child_folder_ids:
+                yield ('?', full_path)
+                for info in self.check_folder(child_id):
+                    yield info
+                
+                for f in self.model.get_files(child_id):
+                    filePath = os.path.join(full_path, f.name)
+                    for info in self.check_file(filePath, f):
+                        yield info
+    
+    def run_action(self):
+        self.model = Model(logger=printer).set_connection(get_connection())
+        if os.path.isfile(self.path):
+            f = self.model.file(self.path, False)
+            if f.is_none():
+                return
+            for info in self.check_file(self.path, f):
+                yield info
+        else:
+            folder_id = self.model.folder(self.path, False, parent_folder_id)
+            if folder_id is None:
+                return
+            for info in self.check_folder(folder_id):
+                yield info
          
+                
+                
 dbPath = 'db01.sqlite'
 
 def get_connection(dbPath=dbPath):
@@ -298,9 +395,6 @@ if __name__ == '__main__':
     m.set_connection(get_connection(dbPath))
     if not databasePresent:
         m.make_schema()
-    
-    fs = FileSystem(m)
-    fs.importFolder('/home/benjamin/d/devel')
     
     m.commit_and_close()
     

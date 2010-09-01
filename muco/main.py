@@ -4,7 +4,7 @@ from twisted.internet import threads
 from PyQt4 import QtCore, QtGui
 
 from gui import Ui_MainWindow
-from model import Model, get_connection, ImportFilesAction, DeleteFilesAction
+from model import Model, get_connection, ImportFilesAction, DeleteFilesAction, CheckFilesAction
 from action import ActionController, TestAction
 
 
@@ -15,24 +15,37 @@ class FSModel(QtGui.QFileSystemModel):
         
     def set_dbmodel(self, dbmodel):
         self.dbmodel = dbmodel
-        self.dbcache = {}
+        self.fileCache = {}
+        self.folderCache = {}
         
     def data(self, index, role):
         if role != 8:
             return super(FSModel, self).data(index, role)
             
         path = unicode(self.filePath(index))
-        try:
-            dbID = self.dbcache[path]
-        except KeyError:
-            if self.isDir(index):
-                dbID = self.dbmodel.folder(path, False)
-            else:
-                _, dbID = self.dbmodel.file(path, False)
-            self.dbcache[path] = dbID
         
-        if dbID is not None:
-            return QtGui.QColor('yellow')
+        if self.isDir(index):
+            try:
+                dbID = self.folderCache[path]
+                return QtGui.QColor('yellow')
+            except KeyError:
+                dbID = self.dbmodel.folder(path, False)
+                if not dbID is None:
+                    self.folderCache[path] = dbID
+                
+        else:
+            try:
+                f = self.fileCache[path]
+                if not f.is_none():
+                    if f.hash_is_wrong:
+                        return QtGui.QColor('red')
+                    return QtGui.QColor('yellow')
+                
+            except KeyError:
+                f = self.dbmodel.file(path, False)
+                if not f.is_none():
+                    self.fileCache[path] = f
+    
         
       
     def import_el(self, indexes):
@@ -53,7 +66,16 @@ class FSModel(QtGui.QFileSystemModel):
         self.dbcache = {}
         self.emit(QtCore.SIGNAL('dataChanged()'))
         
-    
+    def check_el(self, indexes):
+        index = indexes[0]
+        path = unicode(self.filePath(index))
+        action = CheckFilesAction(path)
+        self.actionController.add_action(action)
+        #self.dbmodel.commit()
+        #self.dbcache = {}
+        #self.emit(QtCore.SIGNAL('dataChanged()'))
+        
+        
 class StatusView(object):
     def __init__(self, w):
         self.w = w # the Qt widget
@@ -81,11 +103,9 @@ class MainWindow(QtGui.QMainWindow):
         self.ui.treeView.setExpanded(self.fsmodel.index('/home/benjamin'), True)
         self.connect(self.ui.button_import, QtCore.SIGNAL('clicked()'), self.import_el)
         self.connect(self.ui.buttom_remove, QtCore.SIGNAL('clicked()'), self.delete_el)
+        self.connect(self.ui.button_check, QtCore.SIGNAL('clicked()'), self.check_el)
+        
         self.statusbar = self.statusBar()
-        
-        
-        #self.actionController.add_action(TestAction('A', 10))
-        #self.actionController.add_action(TestAction('B', 20))
         
         
     def import_el(self):
@@ -95,6 +115,9 @@ class MainWindow(QtGui.QMainWindow):
     def delete_el(self):
         self.fsmodel.delete_el(self.ui.treeView.selectedIndexes())
         self.refresh_stats()
+        
+    def check_el(self):
+        self.fsmodel.check_el(self.ui.treeView.selectedIndexes())
         
         
     def refresh_stats(self):
@@ -131,4 +154,6 @@ if __name__ == '__main__':
     app.exec_()
 
     
+    
+
     

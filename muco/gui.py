@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 
-# Form implementation generated from reading ui file 'ui/main.ui'
+# Form implementation generated from reading ui file '../ui/main.ui'
 #
-# Created: Sun Aug 15 11:15:19 2010
+# Created: Wed Sep  1 21:03:13 2010
 #      by: PyQt4 UI code generator 4.6
 #
 # WARNING! All changes made in this file will be lost!
@@ -46,6 +46,9 @@ class Ui_MainWindow(object):
         self.buttom_remove = QtGui.QPushButton(self.layoutWidget)
         self.buttom_remove.setObjectName("buttom_remove")
         self.horizontalLayout.addWidget(self.buttom_remove)
+        self.button_check = QtGui.QPushButton(self.layoutWidget)
+        self.button_check.setObjectName("button_check")
+        self.horizontalLayout.addWidget(self.button_check)
         spacerItem = QtGui.QSpacerItem(40, 20, QtGui.QSizePolicy.Expanding, QtGui.QSizePolicy.Minimum)
         self.horizontalLayout.addItem(spacerItem)
         self.verticalLayout.addLayout(self.horizontalLayout)
@@ -91,5 +94,6 @@ class Ui_MainWindow(object):
         MainWindow.setWindowTitle(QtGui.QApplication.translate("MainWindow", "MainWindow", None, QtGui.QApplication.UnicodeUTF8))
         self.button_import.setText(QtGui.QApplication.translate("MainWindow", "Importieren", None, QtGui.QApplication.UnicodeUTF8))
         self.buttom_remove.setText(QtGui.QApplication.translate("MainWindow", "Entfernen", None, QtGui.QApplication.UnicodeUTF8))
+        self.button_check.setText(QtGui.QApplication.translate("MainWindow", "Prüfen", None, QtGui.QApplication.UnicodeUTF8))
         self.button_pause.setText(QtGui.QApplication.translate("MainWindow", "Pause/Fortsetzen", None, QtGui.QApplication.UnicodeUTF8))
 
