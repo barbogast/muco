@@ -29,7 +29,7 @@ class FSModel(QtGui.QFileSystemModel):
                 dbID = self.folderCache[path]
                 return QtGui.QColor('yellow')
             except KeyError:
-                dbID = self.dbmodel.folder(path, False)
+                dbID = self.dbmodel.get_folder(path)
                 if not dbID is None:
                     self.folderCache[path] = dbID
                 
@@ -42,7 +42,7 @@ class FSModel(QtGui.QFileSystemModel):
                     return QtGui.QColor('yellow')
                 
             except KeyError:
-                f = self.dbmodel.file(path, False)
+                f = self.dbmodel.get_file(path)
                 if not f.is_none():
                     self.fileCache[path] = f
     
@@ -53,7 +53,6 @@ class FSModel(QtGui.QFileSystemModel):
         path = unicode(self.filePath(index))
         action = ImportFilesAction(path)
         self.actionController.add_action(action)
-        #self.dbmodel.commit()
         self.folderCache = {}
         self.fileCache = {}
         self.emit(QtCore.SIGNAL('dataChanged()'))
@@ -63,7 +62,6 @@ class FSModel(QtGui.QFileSystemModel):
         path = unicode(self.filePath(index))
         action = DeleteFilesAction(path)
         self.actionController.add_action(action)
-        #self.dbmodel.commit()
         self.folderCache = {}
         self.fileCache = {}
         self.emit(QtCore.SIGNAL('dataChanged()'))
@@ -73,7 +71,6 @@ class FSModel(QtGui.QFileSystemModel):
         path = unicode(self.filePath(index))
         action = CheckFilesAction(path)
         self.actionController.add_action(action)
-        #self.dbmodel.commit()
         self.folderCache = {}
         self.fileCache = {}
         self.emit(QtCore.SIGNAL('dataChanged()'))

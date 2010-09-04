@@ -78,20 +78,17 @@ class Model(object):
             path = 'schema.sql'
         sql = open(path).read()
         self.conn.cursor().executescript(sql)
-        
-        
-    def file(self, path, insertIfMissing, folder_id=None, newHashSum=None):
-        self.log('file: path=%s, folder_id=%s, insertIfMissing=%s'%(path, folder_id, insertIfMissing))
-        
-        if os.path.islink(path):
-            # Ingnore links
-            return DB_File(None)
+              
+    
+    def get_file(self, path, folder_id=None):
+        self.log('get_file: path=%s, folder_id=%s'%(path, folder_id))
         
         folder, filename = os.path.split(path)
-                
+        
         # select parent folder
         if folder_id is None:
-            folder_id = self.folder(folder, False)
+            
+            folder_id = self.get_folder(folder)
             if folder_id is None:
                 return DB_File(None)
         
@@ -106,29 +103,70 @@ class Model(object):
                            name=row[2],
                            hash_=row[3],
                            hash_is_wrong=True if row[4] else False))
-
-        # insert file
-        if insertIfMissing:
-            c = self.conn.cursor()
-            c.execute("insert into file (name, folder_id, hash) values (?, ?, ?)",
-                      (filename, folder_id, newHashSum))
-            return DB_File(dict(id_=c.lastrowid, 
-                           folder_id=folder_id,
-                           name=filename,
-                           hash_=newHashSum,
-                           hash_is_wrong=False))
-        else:
+        
+        return DB_File(None)
+    
+    
+    def insert_file(self, path, folder_id=None, newHashSum=None):
+        self.log('insert_file: path=%s, folder_id=%s'%(path, folder_id))
+        
+        if os.path.islink(path):
+            # Ingnore links
             return DB_File(None)
         
-    
-    def folder(self, path, insertIfMissing, parent_folder_id=None):
-        """ 
-        @parm insertIfMissing: If the folder is not found, insert it
+        folder, filename = os.path.split(path)
+                
+        # select parent folder
+        if folder_id is None:
+            folder_id = self.folder(folder, False)
+            if folder_id is None:
+                return DB_File(None)
         
-        Try to select a folder. If it fails and insertIfMissing is True
-        try to insert the parent folder by calling this method. After the 
-        parent folder was inserted (or selected), insert this folder with 
-        the received ID.
+        c = self.conn.cursor()
+        c.execute("insert into file (name, folder_id, hash) values (?, ?, ?)",
+                  (filename, folder_id, newHashSum))
+        return DB_File(dict(id_=c.lastrowid, 
+                       folder_id=folder_id,
+                       name=filename,
+                       hash_=newHashSum,
+                       hash_is_wrong=False))
+            
+    
+    def get_folder(self, path, parent_folder_id=None):
+        self.log('get_folder ' + path)
+        if not os.path.isdir(path) or os.path.islink(path):
+            self.log('Model.folder(): path %s: isdir(%s), islink(%s)' % (path, os.path.isdir(path) , os.path.islink(path)))
+            return None
+        
+        c = self.conn.cursor()
+        path = os.path.normpath(path)
+        
+        is_mount_point = os.path.ismount(path)
+        if is_mount_point:
+            c.execute("select id from folder where is_mount_point = 1 and name = ?",
+                       (path, ))
+            folder_id = _one(c)
+            if folder_id is not None:
+                return folder_id
+        else:
+            if parent_folder_id is None:
+                c.execute("select id from folder where full_path = ?", (path,))
+            else:
+                root, folder = os.path.split(path)
+                c.execute("select id from folder where name = ? and parent_folder_id = ?",
+                          (folder, parent_folder_id))
+            res = c.fetchone()
+            if res is not None:
+                return res[0]
+            
+        return None      
+        
+    
+    def insert_folder(self, path, parent_folder_id=None):
+        """ 
+        Try to get the parent folder. If it is not in the DB, insert it by 
+        calling this method. After the parent folder was inserted (or selected), 
+        insert this folder with the received ID.
         This way the folders will be recursivly selected from top to bottom 
         until one is found or the root is reached.
         Then the folders will be inserted from bottom to top.
@@ -142,30 +180,11 @@ class Model(object):
         root, folder = os.path.split(path)
         path = os.path.normpath(path)
         
-        # Try to select
         is_mount_point = os.path.ismount(path)
-        if is_mount_point:
-            c.execute("select id from folder where is_mount_point = 1 and name = ?",
-                       (path, ))
-            folder_id = _one(c)
-            if folder_id is not None:
-                return folder_id
-        else:
-            if parent_folder_id is None:
-                c.execute("select id from folder where full_path = ?", (path,))
-            else:
-                c.execute("select id from folder where name = ? and parent_folder_id = ?",
-                          (folder, parent_folder_id))
-            res = c.fetchone()
-            if res is not None:
-                return res[0]
-            
-        # No folder in db, do insert
-        if not insertIfMissing:
-            return None      
-                
         if parent_folder_id is None and not is_mount_point:
-            parent_folder_id = self.folder(root, True)
+            parent_folder_id = self.get_folder(root)
+            if parent_folder_id is None:
+                parent_folder_id = self.insert_folder(root)
         
         self.log('insert ' + path)
         c.execute("""insert into folder 
@@ -173,6 +192,7 @@ class Model(object):
                      values (?, ?, ?, ?)""", 
                     (folder, path, parent_folder_id, is_mount_point))
         return c.lastrowid
+    
     
     def delete_file(self, f):
         c = self.conn.cursor()
@@ -218,7 +238,7 @@ class Model(object):
     
     
 class Hasher(object):
-    CHUNK_SIZE = 1000000
+    CHUNK_SIZE = 1024*1024
     _hash = None
     
     def read_hash(self, filePath):
@@ -237,8 +257,7 @@ class Hasher(object):
                 yield pos*100/size, 'Hashing '+filePath
                 
         self._hash = h.hexdigest()
-    
-        
+         
     def get_hash(self):
         return self._hash
     
@@ -251,22 +270,23 @@ class ImportFilesAction(Action):
         return 'Dateien importieren: %s'%self.path
     
     def import_file(self, path, folder_id):
-        print 'import file', path
-        f = self.model.file(path, False, folder_id)
+        f = self.model.get_file(path, folder_id)
         if not f.is_none():
             return
 
         h = Hasher()
         for info in h.read_hash(path):
             yield info
-        f = self.model.file(path, True, folder_id=folder_id, newHashSum=h.get_hash())
+        f = self.model.insert_file(path, folder_id=folder_id, newHashSum=h.get_hash())
         if f.is_none():
             raise Exception('Import failed: %s (%s)' % (path, folder_id))
                 
  
     def import_folder(self, path, parent_folder_id):
         yield('?', path)
-        folder_id = self.model.folder(path, True, parent_folder_id)
+        folder_id = self.model.get_folder(path, parent_folder_id)
+        if folder_id is None:
+            folder_id = self.model.insert_folder(path, parent_folder_id)
         if folder_id is None:
             raise Exception('Import failed: %s (%s)' % (self.path, parent_folder_id))
         
@@ -285,7 +305,11 @@ class ImportFilesAction(Action):
     def run_action(self):
         self.model = Model(logger=printer).set_connection(get_connection())
         if os.path.isfile(self.path):
-            folder_id = self.model.folder(os.path.dirname(self.path), True)
+            folder_path = os.path.dirname(self.path)
+            folder_id = self.model.get_folder(folder_path)
+            if folder_id is None:
+                folder_id = self.model.insert_folder(folder_path)
+                
             for info in self.import_file(self.path, folder_id):
                 yield info
             yield (100, self.path)
@@ -314,14 +338,14 @@ class DeleteFilesAction(Action):
     def run_action(self):
         self.model = Model(logger=printer).set_connection(get_connection())
         if os.path.isfile(self.path):
-            f = self.model.file(self.path, False)
+            f = self.model.get_file(self.path)
             if f.folder_id is None or f.id_ is None:
                 raise Exception('delete of file failed: %s' % (self.path))
             self.model.delete_file(f)
             yield (100, self.path)
         else:
             yield ('?', self.path)
-            folder_id = self.model.folder(self.path, False)
+            folder_id = self.model.get_folder(self.path)
             for info in self.delete_folder(folder_id, self.path):
                 yield info
         self.model.commit_and_close()
@@ -362,13 +386,13 @@ class CheckFilesAction(Action):
     def run_action(self):
         self.model = Model(logger=printer).set_connection(get_connection())
         if os.path.isfile(self.path):
-            f = self.model.file(self.path, False)
+            f = self.model.get_file(self.path)
             if f.is_none():
                 return
             for info in self.check_file(self.path, f):
                 yield info
         else:
-            folder_id = self.model.folder(self.path, False)
+            folder_id = self.model.get_folder(self.path)
             if folder_id is None:
                 return
             for info in self.check_folder(folder_id, self.path):
