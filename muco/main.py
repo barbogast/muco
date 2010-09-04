@@ -53,8 +53,9 @@ class FSModel(QtGui.QFileSystemModel):
         path = unicode(self.filePath(index))
         action = ImportFilesAction(path)
         self.actionController.add_action(action)
-        self.dbmodel.commit()
-        self.dbcache = {}
+        #self.dbmodel.commit()
+        self.folderCache = {}
+        self.fileCache = {}
         self.emit(QtCore.SIGNAL('dataChanged()'))
         
     def delete_el(self, indexes):
@@ -62,8 +63,9 @@ class FSModel(QtGui.QFileSystemModel):
         path = unicode(self.filePath(index))
         action = DeleteFilesAction(path)
         self.actionController.add_action(action)
-        self.dbmodel.commit()
-        self.dbcache = {}
+        #self.dbmodel.commit()
+        self.folderCache = {}
+        self.fileCache = {}
         self.emit(QtCore.SIGNAL('dataChanged()'))
         
     def check_el(self, indexes):
@@ -72,8 +74,9 @@ class FSModel(QtGui.QFileSystemModel):
         action = CheckFilesAction(path)
         self.actionController.add_action(action)
         #self.dbmodel.commit()
-        #self.dbcache = {}
-        #self.emit(QtCore.SIGNAL('dataChanged()'))
+        self.folderCache = {}
+        self.fileCache = {}
+        self.emit(QtCore.SIGNAL('dataChanged()'))
         
         
 class StatusView(object):

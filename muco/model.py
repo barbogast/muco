@@ -188,19 +188,17 @@ class Model(object):
         c.execute("select id, name, hash, hash_is_wrong from file where folder_id = ?", (folder_id, ))
         files = []
         for row in c.fetchall():
-            f = DB_File(
-                id_=row[0],
-                name=row[1],
-                hash_=row[2],
-                hash_is_wrong=True if row[3] else False
-            )
+            f = DB_File(dict(id_=row[0],
+                             folder_id=folder_id,
+                             name=row[1],
+                             hash_=row[2],
+                             hash_is_wrong=True if row[3] else False
+                             ))
             files.append(f)
         return files
     
     def set_hash_is_wrong(self, f, is_wrong):
-        print 'set_hash_is_wrong', is_wrong
         c = self.conn.cursor()
-        #is_wrong = 1 if is_wrong else 0
         c.execute("update file set hash_is_wrong = ? where id = ?", (is_wrong, f.id_))
                 
     def delete_folder(self, folder_id):
@@ -234,6 +232,8 @@ class Hasher(object):
                 if not d: break
                 h.update(d)
                 pos += self.CHUNK_SIZE
+                if pos > size:
+                    pos = size
                 yield pos*100/size, 'Hashing '+filePath
                 
         self._hash = h.hexdigest()
@@ -244,7 +244,6 @@ class Hasher(object):
     
     
 class ImportFilesAction(Action):
-    
     def __init__(self, path):
         self.path = path
         
@@ -252,6 +251,7 @@ class ImportFilesAction(Action):
         return 'Dateien importieren: %s'%self.path
     
     def import_file(self, path, folder_id):
+        print 'import file', path
         f = self.model.file(path, False, folder_id)
         if not f.is_none():
             return
@@ -305,8 +305,8 @@ class DeleteFilesAction(Action):
     
     def delete_folder(self, folder_id, path):
         rows = self.model.get_child_folders(folder_id)
-        for folder_id, full_path in rows:
-            for info in self.delete_folder(folder_id, full_path):
+        for child_folder_id, child_full_path in rows:
+            for info in self.delete_folder(child_folder_id, child_full_path):
                 yield info
             
         self.model.delete_folder(folder_id)
@@ -346,18 +346,18 @@ class CheckFilesAction(Action):
                 self.model.set_hash_is_wrong(f, False)
         
     
-    def check_folder(self, folder_id):
+    def check_folder(self, folder_id, full_path):
         child_folder_ids = self.model.get_child_folders(folder_id)
         if child_folder_ids:
-            for child_id, full_path in child_folder_ids:
-                yield ('?', full_path)
-                for info in self.check_folder(child_id):
+            for child_id, child_path in child_folder_ids:
+                yield ('?', child_path)
+                for info in self.check_folder(child_id, child_path):
                     yield info
                 
-                for f in self.model.get_files(child_id):
-                    filePath = os.path.join(full_path, f.name)
-                    for info in self.check_file(filePath, f):
-                        yield info
+        for f in self.model.get_files(folder_id):
+            filePath = os.path.join(full_path, f.name)
+            for info in self.check_file(filePath, f):
+                yield info
     
     def run_action(self):
         self.model = Model(logger=printer).set_connection(get_connection())
@@ -368,11 +368,12 @@ class CheckFilesAction(Action):
             for info in self.check_file(self.path, f):
                 yield info
         else:
-            folder_id = self.model.folder(self.path, False, parent_folder_id)
+            folder_id = self.model.folder(self.path, False)
             if folder_id is None:
                 return
-            for info in self.check_folder(folder_id):
+            for info in self.check_folder(folder_id, self.path):
                 yield info
+        self.model.commit_and_close()
          
                 
                 
