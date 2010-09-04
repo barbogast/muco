@@ -279,7 +279,7 @@ class ImportFilesAction(Action):
                     yield info
 
             elif os.path.isfile(el):
-                for info in self.import_file(el, parent_folder_id):
+                for info in self.import_file(el, folder_id):
                     yield info
     
     def run_action(self):
