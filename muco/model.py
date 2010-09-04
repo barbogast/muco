@@ -4,6 +4,7 @@ import sqlite3
 import apsw
 import os
 import hashlib
+import time
 
 from action import Action
 
@@ -242,8 +243,7 @@ class Hasher(object):
     _hash = None
     
     def read_hash(self, filePath):
-        size = os.path.getsize(filePath)
-        print 'hash', filePath, size
+        self._size = os.path.getsize(filePath)
         pos = 0
         h = hashlib.sha1()
         with open(filePath, 'r') as f:
@@ -252,22 +252,35 @@ class Hasher(object):
                 if not d: break
                 h.update(d)
                 pos += self.CHUNK_SIZE
-                if pos > size:
-                    pos = size
-                yield pos*100/size, 'Hashing '+filePath
+                if pos > self._size:
+                    pos = self._size
+                yield pos*100/self._size
                 
         self._hash = h.hexdigest()
          
     def get_hash(self):
         return self._hash
     
+    def get_size(self):
+        return self._size
+    
     
 class ImportFilesAction(Action):
     def __init__(self, path):
         self.path = path
+        self._totalSize = 0
+        self._noFiles = 0
+        self._duration = 0
         
     def get_name(self):
         return 'Dateien importieren: %s'%self.path
+    
+    def get_stats(self):
+        return {
+            'totalSize': '%.3f'%(self._totalSize/(1024.*1024.)),
+            'duration': int(self._duration),
+            'noFiles': self._noFiles
+        }
     
     def import_file(self, path, folder_id):
         f = self.model.get_file(path, folder_id)
@@ -275,15 +288,18 @@ class ImportFilesAction(Action):
             return
 
         h = Hasher()
-        for info in h.read_hash(path):
-            yield info
+        for pos in h.read_hash(path):
+            yield None, 'Hashing (%s%%) %s'%(pos, path)
         f = self.model.insert_file(path, folder_id=folder_id, newHashSum=h.get_hash())
+        self._totalSize += h.get_size()
+        self._noFiles += 1
+        yield ('%s files imported'%self._noFiles, None)
         if f.is_none():
             raise Exception('Import failed: %s (%s)' % (path, folder_id))
                 
  
     def import_folder(self, path, parent_folder_id):
-        yield('?', path)
+        yield(None, path)
         folder_id = self.model.get_folder(path, parent_folder_id)
         if folder_id is None:
             folder_id = self.model.insert_folder(path, parent_folder_id)
@@ -303,6 +319,7 @@ class ImportFilesAction(Action):
                     yield info
     
     def run_action(self):
+        start = time.time()
         self.model = Model(logger=printer).set_connection(get_connection())
         if os.path.isfile(self.path):
             folder_path = os.path.dirname(self.path)
@@ -317,15 +334,24 @@ class ImportFilesAction(Action):
             for info in self.import_folder(self.path, None):
                 yield info
         self.model.commit_and_close()
-        yield('100', '')
+        self._duration = time.time() - start
+        s = '%s files total'%self._noFiles
+        yield(s, unicode(self.get_stats()))
+        
     
         
 class DeleteFilesAction(Action):
     def __init__(self, path):
         self.path = path
+        self._duration = 0
         
     def get_name(self):
         return 'Dateien entfernen: %s'%self.path
+    
+    def get_stats(self):
+        return {
+            'duration': int(self._duration)
+        }
     
     def delete_folder(self, folder_id, path):
         rows = self.model.get_child_folders(folder_id)
@@ -336,45 +362,59 @@ class DeleteFilesAction(Action):
         self.model.delete_folder(folder_id)
     
     def run_action(self):
+        start = time.time()
         self.model = Model(logger=printer).set_connection(get_connection())
         if os.path.isfile(self.path):
             f = self.model.get_file(self.path)
             if f.folder_id is None or f.id_ is None:
                 raise Exception('delete of file failed: %s' % (self.path))
             self.model.delete_file(f)
-            yield (100, self.path)
+            yield (None, self.path)
         else:
-            yield ('?', self.path)
+            yield (None, self.path)
             folder_id = self.model.get_folder(self.path)
             for info in self.delete_folder(folder_id, self.path):
                 yield info
         self.model.commit_and_close()
-        yield('100', '')
+        self._duration = time.time() - start
+        yield(None, unicode(self.get_stats()))
     
             
 class CheckFilesAction(Action):
     def __init__(self, path):
         self.path = path
+        self._totalSize = 0
+        self._duration = 0
+        self._noFiles = 0
         
     def get_name(self):
         return u'Dateien prüfen: %s'%self.path
+    
+    def get_stats(self):
+        return {
+            'totalSize': '%.3f'%(self._totalSize/(1024.*1024.)),
+            'duration': int(self._duration),
+            'noFiles': self._noFiles
+        }
 
     def check_file(self, filePath, f):
         h = Hasher()
-        for info in h.read_hash(filePath):
-            yield info
+        for pos in h.read_hash(filePath):
+            yield None, 'Hashing (%s%%) %s'%(pos, filePath)
         if f.hash_ != h.get_hash():
             self.model.set_hash_is_wrong(f, True)
         else:
             if f.hash_is_wrong:
                 self.model.set_hash_is_wrong(f, False)
-        
+        self._totalSize += h.get_size()
+        self._noFiles += 1
+        yield ('%s files checked'%self._noFiles, None)
     
     def check_folder(self, folder_id, full_path):
         child_folder_ids = self.model.get_child_folders(folder_id)
         if child_folder_ids:
             for child_id, child_path in child_folder_ids:
-                yield ('?', child_path)
+                yield (None, child_path)
                 for info in self.check_folder(child_id, child_path):
                     yield info
                 
@@ -384,6 +424,7 @@ class CheckFilesAction(Action):
                 yield info
     
     def run_action(self):
+        start = time.time()
         self.model = Model(logger=printer).set_connection(get_connection())
         if os.path.isfile(self.path):
             f = self.model.get_file(self.path)
@@ -398,7 +439,9 @@ class CheckFilesAction(Action):
             for info in self.check_folder(folder_id, self.path):
                 yield info
         self.model.commit_and_close()
-         
+        self._duration = time.time() - start
+        s = '%s files total'%self._noFiles
+        yield(s, unicode(self.get_stats()))
                 
                 
 dbPath = 'db01.sqlite'

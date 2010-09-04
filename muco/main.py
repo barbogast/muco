@@ -49,6 +49,8 @@ class FSModel(QtGui.QFileSystemModel):
         
       
     def import_el(self, indexes):
+        if not indexes:
+            return
         index = indexes[0]
         path = unicode(self.filePath(index))
         action = ImportFilesAction(path)
@@ -58,6 +60,8 @@ class FSModel(QtGui.QFileSystemModel):
         self.emit(QtCore.SIGNAL('dataChanged()'))
         
     def delete_el(self, indexes):
+        if not indexes:
+            return
         index = indexes[0]
         path = unicode(self.filePath(index))
         action = DeleteFilesAction(path)
@@ -67,6 +71,8 @@ class FSModel(QtGui.QFileSystemModel):
         self.emit(QtCore.SIGNAL('dataChanged()'))
         
     def check_el(self, indexes):
+        if not indexes:
+            return
         index = indexes[0]
         path = unicode(self.filePath(index))
         action = CheckFilesAction(path)

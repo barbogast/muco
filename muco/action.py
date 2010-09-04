@@ -10,6 +10,9 @@ class Action(object):
     def get_name(self):
         return 'An action template'
     
+    def get_state(self):
+        return {'someFancyState':123}
+    
     def run_action(self):
         raise NotImplemented()
     
@@ -76,12 +79,15 @@ class ActionRunner(QThread):
           
             
 class ActionController(object):
+    STATUS, NAME, PROGRESS, CURRENT = range(4)
+    HEADERS = ('Status', 'Name', 'Progress', 'Current Item')
+
     def __init__(self, tableWidget, pauseButton, parent):
         self.parent = parent
         self._tableWidget = tableWidget
-        self._headers = ('Name', 'Progress', 'Current Item', 'Status')
-        self._tableWidget.setColumnCount(len(self._headers))
-        self._tableWidget.setHorizontalHeaderLabels(self._headers)
+
+        self._tableWidget.setColumnCount(len(self.HEADERS))
+        self._tableWidget.setHorizontalHeaderLabels(self.HEADERS)
                 
         self._actionRunnerDict = {} # key=id(action), value=ActionRunner
         self._actionRunnerList = []
@@ -105,9 +111,9 @@ class ActionController(object):
         count = len(self._actionRunnerDict)
         self._tableWidget.setRowCount(count)
         row = count - 1
-        self._tableWidget.setItem(row, 0, QTableWidgetItem(actionRunner.get_action_name()))
-        self._tableWidget.setItem(row, 1, QTableWidgetItem('0'))
-        
+        self._tableWidget.setItem(row, self.NAME, QTableWidgetItem(actionRunner.get_action_name()))
+        self._tableWidget.setItem(row, self.PROGRESS, QTableWidgetItem('0'))
+        self._tableWidget.resizeColumnsToContents()
         self._noOpenActions += 1
         
         return actionRunnerID
@@ -128,9 +134,10 @@ class ActionController(object):
     def state_changed(self, actionRunner, state):
         print 'state changed', state
         row = self._actionRunnerList.index(actionRunner)
-        item = self._tableWidget.setItem(row, self._headers.index('Status'), QTableWidgetItem(state))
+        item = self._tableWidget.setItem(row, self.STATUS, QTableWidgetItem(state))
         if state in ('finished', 'error'):
             self._noOpenActions -= 1
+        self._tableWidget.resizeColumnsToContents()
             
     def get_no_open_actions(self):
         return self._noOpenActions
@@ -140,9 +147,9 @@ class ActionController(object):
         for row, actionRunner in enumerate(self._actionRunnerList):
             percentage, currentItem = actionRunner.get_progress()
             if percentage:
-                self._tableWidget.setItem(row, self._headers.index('Progress'), QTableWidgetItem('%s%%'%percentage))
+                self._tableWidget.setItem(row, self.PROGRESS, QTableWidgetItem('%s'%percentage))
             if currentItem:
-                self._tableWidget.setItem(row, self._headers.index('Current Item'), QTableWidgetItem(currentItem))
+                self._tableWidget.setItem(row, self.CURRENT, QTableWidgetItem(currentItem))
             
             
     
