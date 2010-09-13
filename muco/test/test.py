@@ -53,15 +53,140 @@ class SqliteForeignKeys(ut.TestCase):
         cur = self.conn.cursor()
         self.assertRaises(apsw.ConstraintError, doIt, cur)
     
+
+class TestFileCreator(object):
+    def __init__(self, testpath):
+        self._fullPaths = set() # Every write action checks if the required file is in here
+        self._testpath = testpath
+
+        
+    def createFolder(self, path, fileDict):
+        if not path.startswith(self._testpath):
+            raise ValueError('path doesnt start with testpath', path, self._testpath)
+        if not os.path.exists(path):
+            os.mkdir(path)
+            self._fullPaths.update(path)
+        else:
+            print 'Folder exists', path
+        for name, content in self._files.iteritems():
+            if isinstance(v, basestring):
+                self.createFile(os.path.join(path, name), content)
+            elif type(content) == dict:
+                self.createFolder(os.path.join(path, name), content)
+            else:
+                raise ValueError('Value of fileDict may be either string for ',
+                                 'files or dict for directories')
+
+            
+    def createFile(self, path, content):
+        if not path.startswith(self._testpath):
+            raise ValueError('path doesnt start with testpath', path, self._testpath)
+        if os.path.exists(path):
+            print 'File exists:', path
+            return
+        with open(path, 'w') as f:
+            f.write(content)
+        self._fullPaths.update(path)
+            
+    
+    def editFile(self, path, mode, content):
+        if not path in self._fullPaths:
+            print 'File was not created', path
+            return
+        with open(path, mode) as f:
+            f.write(content)
+
+            
+    def removeFile(self, path):
+        if not path in self._fullPaths:
+            print 'File was not created', path
+            return
+        os.remove(path)
+        self._fullPaths.remove(path)
+
+        
+    def removeFolder(self, path):
+        if not path in self._fullPaths:
+            print 'Folder was not created', path
+            return
+        os.rmdir(path)
+        self._fullPaths.remove(path)
+
+        
+    def removeFolderRecursive(self, path):
+        if not path in self._fullPaths:
+            print 'Folder was not created', path
+            return
+        for el in os.listdir(path):
+            elPath = os.path.join(path, el)
+            if os.path.isfile(elPath):
+                self.removeFile(elPath)
+            elif os.path.isdir(elPath):
+                self.removeFolderRecursive(elPath)
+        self.removeFolder(path)
+        
+        
+    def removeAll(self):
+        for element in reversed(sorted(self._fullPaths)):
+            if not os.path.exists(element):
+                continue
+            if os.path.isfile(element):
+                self.removeFile(element)
+            elif os.path.isdir(element):
+                self.removeFolder(element)
+            else:
+                raise ValueError('Element in self._fullPaths is neither file or dir', path)
+
+
+class TestFSCreator_Test(ut.TestCase):
+    def setUp(self):
+        pass
+    
     
 class TestModel(ut.TestCase):
+    files = {
+        'file0_1.txt': 'testtext',
+        'file0_2.txt': 'testtext',
+        'file0_3.txt': 'testtext',
+        'folder1': {
+            'file1_1.txt': 'testtext',
+            'file1_2.txt': 'testtext',
+            'file1_3.txt': 'testtext',
+        },
+        'folder2': {
+            'file2_1.txt': 'testtext',
+            'file2_2.txt': 'testtext',
+            'file2_3.txt': 'testtext',
+        },
+        'folder3': {},
+        'folder4': {
+            'file4_1.txt': 'testtext',
+            'file4_2.txt': 'testtext',
+            'file4_3.txt': 'testtext',
+            'folder4_4': {
+                'file4_4_1.txt': 'testtext',
+                'file4_4_2.txt': 'testtext',
+                'file4_4_3.txt': 'testtext',
+            }
+        }
+            
+    }
+            
     def setUp(self):
         pass
    
     #def
     
      # Dateien in eine neue DB einfügen
-    
+    """
+     * einzelne Datei einfuegen/loeschen
+     * viele dateien einfuegen
+     * einzelnes verzeichnis
+     * viele veziechnisse
+     * leeres verzeichnis einfuegen/loeschen
+     * verzeichnis mit dateien einfuegen/loeschen
+     * verzeichnis mti unterdateien einfuegen/loeschen
+     * import von leerem verzeichnis
     
     # Volles Verzeichnis loeschen
     # Leeres Verzeichnis loeschen
@@ -69,6 +194,23 @@ class TestModel(ut.TestCase):
     # Dateien einfuegen in einem Verzeichnis, das es schon gibt
     # Dateien einfuegen in einem Ortner, dessen unter-unterordner schon in der DB ist
     # Verzeichnis rekursiv einfuegen
+    * letzte datei aus einem verzeichnis löschen
+    
+    * einzelne datei pruefen
+    * verzeichnis pruefen
+    * einzelne datei fehlt
+    * verzeichnis fehlt
+    
+    check: datei ist nun fehlerhaft. werden alle übergeordneten verzeichnisse markiert?
+    check: fehlerhafte datei ist wieder ok. werden alle übergeordneten verzeichnisse entmarkiert?
+    check: fehlerhafte datei ist wieder ok, andere datei ist nun fehlerhaft
+    check: fehlerhafte datei ist wieder ok. übergeordnetes verzeichnis soll neu geprüft werden. hier ist aber noch eine fehlerhafte datei enthalten
+    die einzige fehlerhafte datei wird entfernt.
+    
+    * nicht lesbare verzeichnisse und dateien
+    * inks, verknuepfungen und mount points
+    
+    """
     
     
     
