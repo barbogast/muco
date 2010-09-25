@@ -26,25 +26,28 @@ class FSModel(QtGui.QFileSystemModel):
         
         if self.isDir(index):
             try:
-                dbID = self.folderCache[path]
-                return QtGui.QColor('yellow')
+                fo = self.folderCache[path]
+                if not fo.is_none():
+                    if fo.hash_is_wrong:
+                        return QtGui.QColor('red')
+                    return QtGui.QColor('yellow')
             except KeyError:
-                dbID = self.dbmodel.get_folder(path)
-                if not dbID is None:
-                    self.folderCache[path] = dbID
+                fo = self.dbmodel.get_folder(path)
+                if not fo.is_none():
+                    self.folderCache[path] = fo
                 
         else:
             try:
-                f = self.fileCache[path]
-                if not f.is_none():
-                    if f.hash_is_wrong:
+                fi = self.fileCache[path]
+                if not fi.is_none():
+                    if fi.hash_is_wrong:
                         return QtGui.QColor('red')
                     return QtGui.QColor('yellow')
                 
             except KeyError:
-                f = self.dbmodel.get_file(path)
-                if not f.is_none():
-                    self.fileCache[path] = f
+                fi = self.dbmodel.get_file(path)
+                if not fi.is_none():
+                    self.fileCache[path] = fi
     
         
       
