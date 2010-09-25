@@ -236,17 +236,27 @@ class Model(object):
         c = self.conn.cursor()
         c.execute("delete from file where folder_id = ? and id = ?", (fi.folder.id_, fi.id_))
         
-    def get_child_folders(self, parent_folder_id):
+    def get_child_folders(self, parent_fo):
         c = self.conn.cursor()
-        c.execute("select id, full_path from folder where parent_folder_id = ?", (parent_folder_id, ))
-        return c.fetchall()
+        c.execute("""select id, name, full_path, is_mount_point, hash, hash_is_wrong 
+                     from folder where parent_folder_id = ?""", (parent_fo.id_, ))
+        folders = []
+        for row in c:
+            folders.append(DB_Folder(id_=row[0],
+                                     name=row[1],
+                                     full_path=row[2],
+                                     parent_folder=parent_fo,
+                                     is_mount_point=row[3],
+                                     hash_=row[4],
+                                     hash_is_wrong=row[5]))
+        return folders
     
-    def get_files(self, folder_id):
+    def get_files(self, fo):
         c = self.conn.cursor()
-        c.execute("select id, name, hash, hash_is_wrong from file where folder_id = ?", (folder_id, ))
+        c.execute("select id, name, hash, hash_is_wrong from file where folder_id = ?", (fo.id_, ))
         files = []
         for row in c.fetchall():
-            fi = DB_File(id_=row[0], name=row[1], hash_=row[2], hash_is_wrong=row[3])#, folder=fo) TODO. soll hier wirklich kein folderid verwendet werden?
+            fi = DB_File(id_=row[0], name=row[1], hash_=row[2], hash_is_wrong=row[3], folder=fo)
             files.append(fi)
         return files
     
@@ -265,12 +275,12 @@ class Model(object):
         fi.hash_ = hashSum
         
         
-    def delete_folder(self, folder_id):
+    def delete_folder(self, fo):
         """ Will delete the files in this folder, then the foldern itself.
         Attention: Make sure, the given folder doesnt have any subfolders!"""
         c = self.conn.cursor()
-        c.execute("delete from file where folder_id = ?", (folder_id, ))
-        c.execute("delete from folder where id = ?", (folder_id, ))
+        c.execute("delete from file where folder_id = ?", (fo.id_, ))
+        c.execute("delete from folder where id = ?", (fo.id_, ))
     
     #def set_folder_hash_is_wrong(self, fo, isWrong=None):
         #c = self.conn.cursor()
@@ -414,13 +424,13 @@ class DeleteFilesAction(Action):
             'duration': int(self._duration)
         }
     
-    def delete_folder(self, folder_id, path):
-        rows = self.model.get_child_folders(folder_id)
-        for child_folder_id, child_full_path in rows:
-            for info in self.delete_folder(child_folder_id, child_full_path):
+    def delete_folder(self, fo):
+        rows = self.model.get_child_folders(fo)
+        for child_fo in rows:
+            for info in self.delete_folder(child_fo):
                 yield info
-        yield('TODO', path)
-        self.model.delete_folder(folder_id)
+        yield('TODO', fo.full_path)
+        self.model.delete_folder(fo)
     
     def run_action(self):
         start = time.time()
@@ -434,7 +444,7 @@ class DeleteFilesAction(Action):
         else:
             yield (None, self.path)
             fo = self.model.get_folder(self.path)
-            for info in self.delete_folder(fo.id_, self.path):
+            for info in self.delete_folder(fo):
                 yield info
         self.model.commit_and_close()
         self._duration = time.time() - start
@@ -472,16 +482,18 @@ class CheckFilesAction(Action):
         self._noFiles += 1
         yield ('%s files checked'%self._noFiles, None)
     
-    def check_folder(self, folder_id, full_path):
-        rows = self.model.get_child_folders(folder_id)
+    def check_folder(self, fo):
+        # Check subfolders
+        rows = self.model.get_child_folders(fo)
         if rows:
-            for child_id, child_path in rows:
-                yield (None, child_path)
-                for info in self.check_folder(child_id, child_path):
+            for child_fo in rows:
+                yield (None, child_fo.full_path)
+                for info in self.check_folder(child_fo):
                     yield info
-                
-        for fi in self.model.get_files(folder_id):
-            filePath = os.path.join(full_path, fi.name)
+        
+        # Check files
+        for fi in self.model.get_files(fo):
+            filePath = os.path.join(fo.full_path, fi.name)
             for info in self.check_file(filePath, fi):
                 yield info
     
@@ -498,7 +510,7 @@ class CheckFilesAction(Action):
             fo = self.model.get_folder(self.path)
             if fo.is_none():
                 return
-            for info in self.check_folder(fo.id_, self.path):
+            for info in self.check_folder(fo):
                 yield info
         self.model.commit_and_close()
         self._duration = time.time() - start
