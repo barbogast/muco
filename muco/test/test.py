@@ -210,6 +210,10 @@ class TestModel(ut.TestCase):
     * nicht lesbare verzeichnisse und dateien
     * inks, verknuepfungen und mount points
     
+    * pruefen, ob sich alles richtig verhaelt, wenn zwei Ordner oder dateien denselben namen haben
+    
+    tests fuer folder.is_ok
+     * 
     """
     
     

@@ -59,16 +59,16 @@ class DB_File(DB_Object):
 
 class DB_Folder(DB_Object):
     ATTRIBUTES = frozenset(['id_', 'name', 'full_path', 'is_mount_point', 
-                            'hash_', 'hash_is_wrong'])
+                            'hash_', 'is_ok', 'parent_folder_id'])
     RELATIONS = frozenset(['parent_folder'])
     full_path = None #TODO
-    hash_is_wrong=None
+    is_ok=None
     def __init__(self, **kwargs):
         super(DB_Folder, self).__init__(**kwargs)
         if self.full_path and not self.name:
             self.name = os.path.split(os.path.normpath(self.full_path))[1]
-        if self.hash_is_wrong is None or self.hash_is_wrong is 0:
-            self.hash_is_wrong = False
+        if self.is_ok is None or self.is_ok is 0:
+            self.is_ok = False
         
         
 class Model(object):
@@ -110,14 +110,14 @@ class Model(object):
         self.conn.cursor().executescript(sql)
               
     
-    def get_file(self, path, fo=DB_Folder()):
+    def get_file_by_path(self, path, fo=DB_Folder()):
         self.log('get_file: path=%s, folder_id=%s'%(path, fo))
         
         folder, filename = os.path.split(path)
         
         # select parent folder
         if fo.is_none():
-            fo = self.get_folder(folder)
+            fo = self.get_folder_by_path(folder)
             if fo.is_none():
                 return DB_File()
         
@@ -145,7 +145,7 @@ class Model(object):
         # select parent folder
         ## TODO: is this path ever used/tested???
         if fo.is_none():
-            fo = self.get_folder(folder, False)
+            fo = self.get_folder_by_path(folder, False)
             if fo.is_none():
                 return DB_File()
         
@@ -159,7 +159,7 @@ class Model(object):
                        hash_is_wrong=False)
             
     
-    def get_folder(self, path, parent_fo=DB_Folder()):
+    def get_folder_by_path(self, path, parent_fo=DB_Folder()):
         self.log('get_folder ' + path)
         if not os.path.isdir(path) or os.path.islink(path):
             self.log('Model.folder(): path %s: isdir(%s), islink(%s)' % (path, os.path.isdir(path) , os.path.islink(path)))
@@ -181,17 +181,25 @@ class Model(object):
                 where = "name = ? and parent_folder_id = ?"
                 args = (folder, parent_fo.id_)
             
-        stmt = "select id, hash, hash_is_wrong from folder where " + where
+        stmt = "select id, hash, is_ok, parent_folder_id from folder where " + where
         res = list(self.conn.cursor().execute(stmt, args))
         if not res:
             return DB_Folder()
-        d = dict(zip(['id_', 'hash_', 'hash_is_wrong'], res[0]))
+        d = dict(zip(['id_', 'hash_', 'is_ok', 'parent_folder_id'], res[0]))
         d.update(name='', 
                  full_path=path, 
                  is_mount_point=is_mount_point,
                  parent_folder=parent_fo)
         return DB_Folder(**d)
             
+        
+    def get_folder_by_id(self, folder_id):    
+        res = list(self.conn.cursor().execute(""" 
+            select id, name, full_path, is_mount_point, hash, is_ok, parent_folder_id from folder
+            where id = ?""", (folder_id, )))
+        d = dict(zip(('id_', 'name', 'full_path', 'is_mount_point', 'hash_', 'is_ok', 'parent_folder_id'), res[0]))
+        d.update(parent_folder=DB_Folder())
+        return DB_Folder(**d)
         
     
     def insert_folder(self, path, parent_fo=DB_Folder()):
@@ -214,22 +222,26 @@ class Model(object):
         
         is_mount_point = os.path.ismount(path)
         if parent_fo.is_none() and not is_mount_point:
-            parent_fo = self.get_folder(root)
+            parent_fo = self.get_folder_by_path(root)
             if parent_fo.is_none():
                 parent_fo = self.insert_folder(root)
+            parent_folder_id = parent_fo.id_
+        else:
+            parent_folder_id = None
         
         self.log('insert ' + path)
         c.execute("""insert into folder 
                      (name, full_path, parent_folder_id, is_mount_point)
                      values (?, ?, ?, ?)""", 
-                    (folder, path, parent_fo.id_, is_mount_point))
+                    (folder, path, parent_folder_id, is_mount_point))
         return DB_Folder(id_=c.lastrowid,
                          name=folder,
                          full_path=path,
                          parent_folder=parent_fo,
+                         parent_folder_id=parent_folder_id,
                          is_mount_point=is_mount_point,
                          hash_=None,
-                         hash_is_wrong=False)
+                         is_ok=False)
     
     
     def delete_file(self, fi):
@@ -238,7 +250,7 @@ class Model(object):
         
     def get_child_folders(self, parent_fo):
         c = self.conn.cursor()
-        c.execute("""select id, name, full_path, is_mount_point, hash, hash_is_wrong 
+        c.execute("""select id, name, full_path, is_mount_point, hash, is_ok 
                      from folder where parent_folder_id = ?""", (parent_fo.id_, ))
         folders = []
         for row in c:
@@ -248,7 +260,7 @@ class Model(object):
                                      parent_folder=parent_fo,
                                      is_mount_point=row[3],
                                      hash_=row[4],
-                                     hash_is_wrong=row[5]))
+                                     is_ok=row[5]))
         return folders
     
     def get_files(self, fo):
@@ -282,10 +294,12 @@ class Model(object):
         c.execute("delete from file where folder_id = ?", (fo.id_, ))
         c.execute("delete from folder where id = ?", (fo.id_, ))
     
-    #def set_folder_hash_is_wrong(self, fo, isWrong=None):
+    def set_folder_is_ok(self, fo, isOk):
+        """ returns True if is_ok was changed"""
+        if fo.is_ok == isOk:
+            return False
+
         #c = self.conn.cursor()
-        #if fo.hash_is_wrong == isWrong:
-            #return
         #if isWrong is None:
             #isWrong = False
             #c.execute("select id from folder where parent_folder_id = ? and hash_is_wrong = 1")
@@ -295,8 +309,18 @@ class Model(object):
                 #c.execute("select id from file where folder_id = ? and hash_is_wrong = 1")
                 #if c.fetchall():
                     #isWrong = True
-                    
-        #c.execute("update folder set hash_is_wrong = ? where id = ?", (isWrong, folder_id))
+        
+        c.execute("update folder set is_ok = ? where id = ?", (0 if isOk else 1, fo.id_))
+        fo.is_ok = isOk
+        return True
+        
+    def set_folder_hash(self, fo, hashSum):
+        if fo.hash_ == hashSum:
+            return
+        self.conn.cursor().execute('update folder set hash = ? where id = ?',
+                                   (hashSum, fo.id_))
+        fo.hash_ = hashSum
+        
         
         
     #def add_to_folder_hash(self)
@@ -354,7 +378,7 @@ class ImportFilesAction(Action):
         }
     
     def import_file(self, path, fo):
-        fi = self.model.get_file(path, fo)
+        fi = self.model.get_file_by_path(path, fo)
         if not fi.is_none():
             return
 
@@ -371,7 +395,7 @@ class ImportFilesAction(Action):
  
     def import_folder(self, path, parent_fo=DB_Folder()):
         yield(None, path)
-        fo = self.model.get_folder(path, parent_fo)
+        fo = self.model.get_folder_by_path(path, parent_fo)
         if fo.is_none():
             fo = self.model.insert_folder(path, parent_fo)
         if fo.is_none():
@@ -394,7 +418,7 @@ class ImportFilesAction(Action):
         self.model = Model(logger=printer).set_connection(get_connection())
         if os.path.isfile(self.path):
             folder_path = os.path.dirname(self.path)
-            fo = self.model.get_folder(folder_path)
+            fo = self.model.get_folder_by_path(folder_path)
             if fo.is_none():
                 fo = self.model.insert_folder(folder_path)
                 
@@ -436,14 +460,14 @@ class DeleteFilesAction(Action):
         start = time.time()
         self.model = Model(logger=printer).set_connection(get_connection())
         if os.path.isfile(self.path):
-            fi = self.model.get_file(self.path)
+            fi = self.model.get_file_by_path(self.path)
             if fi.is_none():
                 raise Exception('delete of file failed, file not in db: %s' % (self.path))
             self.model.delete_file(fi)
             yield (None, self.path)
         else:
             yield (None, self.path)
-            fo = self.model.get_folder(self.path)
+            fo = self.model.get_folder_by_path(self.path)
             for info in self.delete_folder(fo):
                 yield info
         self.model.commit_and_close()
@@ -467,6 +491,50 @@ class CheckFilesAction(Action):
             'duration': int(self._duration),
             'noFiles': self._noFiles
         }
+    
+    def update_parent_folder_is_ok(self, fo):
+        """ Will recheck the parent folder of this folder, is the is_ok-values 
+        does not match """
+        if fo.is_mount_point:
+            return
+        
+        parent_fo = self.model.get_folder_by_id(fo.parent_folder_id)
+        if fo.is_ok == parent_fo.is_ok:
+            return
+        else:
+            child_files = self.model.get_files(parent_fo)
+            child_folders = self.model.get_child_folders(parent_fo)
+            was_changed = self.check_folder_is_ok(parent_fo, child_files, child_folders)
+            if was_changed and not parent_fo.is_mount_point:
+                parent_parent_folder_id = self.model.get_folder_by_id(parent_fo.parent_folder_id)
+                self.update_parent_folder_is_ok(parent_parent_folder_id)
+    
+    def check_folder_is_ok(self, fo, child_folders, child_files):
+        """ Returns False if the folder was not ok """
+        for child_fo in child_folders:
+            if not child_fo.is_ok:
+                was_changed = self.model.set_folder_is_ok(fo, False)
+                return was_changed
+
+        for child_fi in child_files:
+            if child_fi.hash_is_wrong:
+                was_changed = self.model.set_folder_is_ok(fo, False)
+                return was_changed
+         
+        h = hashlib.sha1()
+        for child_fo in child_folders:
+            h.update(child_fo.hash_)
+        for child_fi in child_files:
+            h.update(child_fi.hash_)
+        hashSum = h.hexdigest()
+        
+        if not fo.hash_:
+            was_changed = self.model.set_folder_hash(fo, hashSum)
+            return was_changed
+        else:
+            was_changed = self.model.set_folder_is_ok(fo, fo.hash_ == hashSum)
+            return was_changed
+            
 
     def check_file(self, filePath, fi):
         h = Hasher()
@@ -484,34 +552,38 @@ class CheckFilesAction(Action):
     
     def check_folder(self, fo):
         # Check subfolders
-        rows = self.model.get_child_folders(fo)
-        if rows:
-            for child_fo in rows:
-                yield (None, child_fo.full_path)
-                for info in self.check_folder(child_fo):
-                    yield info
+        child_folders = self.model.get_child_folders(fo)
+        for child_fo in child_folders:
+            yield (None, child_fo.full_path)
+            for info in self.check_folder(child_fo):
+                yield info
         
         # Check files
-        for fi in self.model.get_files(fo):
+        child_files = self.model.get_files(fo)
+        for fi in child_files:
             filePath = os.path.join(fo.full_path, fi.name)
             for info in self.check_file(filePath, fi):
                 yield info
+                
+        self.check_folder_is_ok(fo, child_folders, child_files)
     
     def run_action(self):
         start = time.time()
         self.model = Model(logger=printer).set_connection(get_connection())
         if os.path.isfile(self.path):
-            fi = self.model.get_file(self.path)
+            fi = self.model.get_file_by_path(self.path)
             if fi.is_none():
                 return
             for info in self.check_file(self.path, fi):
                 yield info
+            self.update_parent_folder_is_ok(fi.folder)
         else:
-            fo = self.model.get_folder(self.path)
+            fo = self.model.get_folder_by_path(self.path)
             if fo.is_none():
                 return
             for info in self.check_folder(fo):
                 yield info
+            self.update_parent_folder_is_ok(fo)
         self.model.commit_and_close()
         self._duration = time.time() - start
         s = '%s files total'%self._noFiles

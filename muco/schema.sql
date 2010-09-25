@@ -38,7 +38,11 @@ create table folder (
   full_path        text,
   is_mount_point   boolean, 
   hash             text,
-  hash_is_wrong    integer default 0, --bool
+  is_ok            boolean default 1, -- bool
+  -- is_ok is True if: 
+  --    all subfolders are ok, 
+  --    all contained files have correct hashsums, 
+  --    the hash of the hashes of the contained files and the subfolders matches the hash of this tuple
   parent_folder_id integer
      references folder(id),
   unique(full_path),
