@@ -44,7 +44,7 @@ class DB_Object(object):
     def is_none(self):
         return self._is_none
 
-    
+        
 class DB_File(DB_Object):
     ATTRIBUTES = frozenset(['id_', 'name', 'hash_', 'hash_is_wrong'])
     RELATIONS = frozenset(['folder'])
@@ -62,8 +62,23 @@ class DB_Folder(DB_Object):
     ATTRIBUTES = frozenset(['id_', 'name', 'full_path', 'is_mount_point', 
                             'hash_', 'is_ok', 'parent_folder_id'])
     RELATIONS = frozenset(['parent_folder'])
-    full_path = None #TODO
-    is_ok=None
+    full_path = None #TODO: should be removed
+    is_ok=None #TODO: should be removed
+    
+    __child_files = {}
+    @property
+    def child_files(self):
+        if self._is_none:
+            raise ValueError('The current object is none: %s'%str(self))
+        return self.__child_files
+    
+    __child_folders = {}
+    @property
+    def child_folders(self):
+        if self._is_none:
+            raise ValueError('The current object is none: %s'%str(self))
+        return self.__child_folders
+    
     def __init__(self, **kwargs):
         super(DB_Folder, self).__init__(**kwargs)
         if self.full_path and not self.name:
@@ -130,8 +145,10 @@ class Model(object):
                      where name = ? and folder_id = ?""", (filename, fo.id_))
         row = c.fetchone()
         if row is not None:
-            return DB_File(id_=row[0], folder=fo, name=row[2], hash_=row[3],
+            fi = DB_File(id_=row[0], folder=fo, name=row[2], hash_=row[3],
                            hash_is_wrong=row[4])
+            fo.child_files[fi.id_] = fi
+            return fi
         
         return DB_File()
     
@@ -155,12 +172,13 @@ class Model(object):
         c = self.conn.cursor()
         c.execute("insert into file (name, folder_id, hash) values (?, ?, ?)",
                   (filename, fo.id_, newHashSum))
-        return DB_File(id_=c.lastrowid, 
-                       folder=fo,
-                       name=filename,
-                       hash_=newHashSum,
-                       hash_is_wrong=False)
-            
+        fi = DB_File(id_=c.lastrowid, 
+                     folder=fo,
+                     name=filename,
+                     hash_=newHashSum,
+                     hash_is_wrong=False)
+        fo.child_files[fi.id_] = fi
+        
     
     def get_folder_by_path(self, path, parent_fo=DB_Folder()):
         self.log('get_folder ' + path)
@@ -193,7 +211,10 @@ class Model(object):
                  full_path=path, 
                  is_mount_point=is_mount_point,
                  parent_folder=parent_fo)
-        return DB_Folder(**d)
+        fo = DB_Folder(**d)
+        if not parent_fo.is_none():
+            parent_fo.child_folders[fo.id_] = fo
+        return fo
             
         
     def get_folder_by_id(self, folder_id):    
@@ -238,7 +259,8 @@ class Model(object):
                      (name, full_path, parent_folder_id, is_mount_point)
                      values (?, ?, ?, ?)""", 
                     (folder, path, parent_folder_id, is_mount_point))
-        return DB_Folder(id_=c.lastrowid,
+        
+        fo = DB_Folder(id_=c.lastrowid,
                          name=folder,
                          full_path=path,
                          parent_folder=parent_fo,
@@ -246,36 +268,40 @@ class Model(object):
                          is_mount_point=is_mount_point,
                          hash_=None,
                          is_ok=False)
+        
+        if not parent_fo.is_none():
+            parent_fo.child_folders[fo.id_] = fo
+        return fo
+
     
     
     def delete_file(self, fi):
         c = self.conn.cursor()
         c.execute("delete from file where folder_id = ? and id = ?", (fi.folder.id_, fi.id_))
+        del(fi.folder.child_files[fi.id_])
         
-    def get_child_folders(self, parent_fo):
+        
+    def fill_child_folders(self, parent_fo):
         c = self.conn.cursor()
         c.execute("""select id, name, full_path, is_mount_point, hash, is_ok 
                      from folder where parent_folder_id = ?""", (parent_fo.id_, ))
-        folders = []
         for row in c:
-            folders.append(DB_Folder(id_=row[0],
-                                     name=row[1],
-                                     full_path=row[2],
-                                     parent_folder=parent_fo,
-                                     parent_folder_id=parent_fo.id_,
-                                     is_mount_point=row[3],
-                                     hash_=row[4],
-                                     is_ok=row[5]))
-        return folders
+            fo = DB_Folder(id_=row[0],
+                          name=row[1],
+                          full_path=row[2],
+                          parent_folder=parent_fo,
+                          parent_folder_id=parent_fo.id_,
+                          is_mount_point=row[3],
+                          hash_=row[4],
+                          is_ok=row[5])
+            parent_fo.child_folders[fo.id_] = fo
     
-    def get_files(self, fo):
+    def fill_child_files(self, fo):
         c = self.conn.cursor()
         c.execute("select id, name, hash, hash_is_wrong from file where folder_id = ?", (fo.id_, ))
-        files = []
         for row in c.fetchall():
             fi = DB_File(id_=row[0], name=row[1], hash_=row[2], hash_is_wrong=row[3], folder=fo)
-            files.append(fi)
-        return files
+            fo.child_files[fi.id_] = fi
     
     def set_file_hash_is_wrong(self, fi, is_wrong):
         if fi.hash_is_wrong is is_wrong:
@@ -435,7 +461,7 @@ class ImportFilesAction(Action):
                 yield info
             yield (100, self.path)
         else:
-            for info in self.import_folder(self.path, DB_Folder()):
+            for info in self.import_folder(self.path):
                 yield info
         self.model.commit_and_close()
         self._duration = time.time() - start
@@ -458,8 +484,8 @@ class DeleteFilesAction(Action):
         }
     
     def delete_folder(self, fo):
-        rows = self.model.get_child_folders(fo)
-        for child_fo in rows:
+        self.model.fill_child_folders(fo)
+        for child_fo in fo.child_folders.values():
             for info in self.delete_folder(child_fo):
                 yield info
         yield('TODO', fo.full_path)
@@ -511,34 +537,32 @@ class CheckFilesAction(Action):
         if fo.hash_ and parent_fo.hash_ and fo.is_ok == parent_fo.is_ok:
             return
         else:
-            child_files = self.model.get_files(parent_fo)
-            child_folders = self.model.get_child_folders(parent_fo)
-            was_changed = self.check_folder_is_ok(parent_fo, child_folders, child_files)
+            was_changed = self.check_folder_is_ok(parent_fo)
             if was_changed and not parent_fo.is_mount_point:
                 self.update_parent_folder_is_ok(parent_fo)
     
-    def check_folder_is_ok(self, fo, child_folders=None, child_files=None):
+    def check_folder_is_ok(self, fo):
         """ Returns False if the folder was not ok """
-        if not child_folders:
-            child_folders = self.model.get_child_folders(fo)
-        if not child_files:
-            child_files = self.model.get_files(fo)
+        if not fo.child_folders:
+            self.model.fill_child_folders(fo)
+        if not fo.child_files:
+            self.model.fill_child_files(fo)
             
-        for child_fo in child_folders:
+        for child_fo in fo.child_folders:
             if not child_fo.is_ok:
                 was_changed = self.model.set_folder_is_ok(fo, False)
                 return was_changed
 
-        for child_fi in child_files:
+        for child_fi in fo.child_files:
             print child_fi
             if child_fi.hash_is_wrong:
                 was_changed = self.model.set_folder_is_ok(fo, False)
                 return was_changed
          
         h = hashlib.sha1()
-        for child_fo in child_folders:
+        for child_fo in fo.child_folders:
             h.update(child_fo.hash_)
-        for child_fi in child_files:
+        for child_fi in fo.child_files:
             h.update(child_fi.hash_)
         hashSum = h.hexdigest()
         
@@ -566,20 +590,20 @@ class CheckFilesAction(Action):
     
     def check_folder(self, fo):
         # Check subfolders
-        child_folders = self.model.get_child_folders(fo)
-        for child_fo in child_folders:
+        self.model.fill_child_folders(fo)
+        for child_fo in fo.child_folders:
             yield (None, child_fo.full_path)
             for info in self.check_folder(child_fo):
                 yield info
         
         # Check files
-        child_files = self.model.get_files(fo)
-        for fi in child_files:
+        self.model.fill_child_files(fo)
+        for fi in fo.child_files:
             filePath = os.path.join(fo.full_path, fi.name)
             for info in self.check_file(filePath, fi):
                 yield info
                 
-        self.check_folder_is_ok(fo, child_folders, child_files)
+        self.check_folder_is_ok(fo)
     
     def run_action(self):
         start = time.time()
