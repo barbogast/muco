@@ -51,9 +51,10 @@ class DB_File(DB_Object):
     hash_is_wrong=None #TODO
     def __init__(self, **kwargs):
         super(DB_File, self).__init__(**kwargs)
-        if self.hash_is_wrong is None or self.hash_is_wrong is 0:
+        if self.hash_is_wrong is None or self.hash_is_wrong == 0:
             self.hash_is_wrong = False
-
+        else:
+            self.hash_is_wrong = True
             
         
 
@@ -67,8 +68,10 @@ class DB_Folder(DB_Object):
         super(DB_Folder, self).__init__(**kwargs)
         if self.full_path and not self.name:
             self.name = os.path.split(os.path.normpath(self.full_path))[1]
-        if self.is_ok is None or self.is_ok is 0:
+        if self.is_ok is None or self.is_ok == 0:
             self.is_ok = False
+        else:
+            self.is_ok = True
         
         
 class Model(object):
@@ -197,6 +200,7 @@ class Model(object):
         res = list(self.conn.cursor().execute(""" 
             select id, name, full_path, is_mount_point, hash, is_ok, parent_folder_id from folder
             where id = ?""", (folder_id, )))
+        print res, folder_id
         d = dict(zip(('id_', 'name', 'full_path', 'is_mount_point', 'hash_', 'is_ok', 'parent_folder_id'), res[0]))
         d.update(parent_folder=DB_Folder())
         return DB_Folder(**d)
@@ -258,6 +262,7 @@ class Model(object):
                                      name=row[1],
                                      full_path=row[2],
                                      parent_folder=parent_fo,
+                                     parent_folder_id=parent_fo.id_,
                                      is_mount_point=row[3],
                                      hash_=row[4],
                                      is_ok=row[5]))
@@ -296,10 +301,12 @@ class Model(object):
     
     def set_folder_is_ok(self, fo, isOk):
         """ returns True if is_ok was changed"""
+        print 'asdf', fo.is_ok == isOk, isOk
+        print fo
         if fo.is_ok == isOk:
             return False
 
-        #c = self.conn.cursor()
+        
         #if isWrong is None:
             #isWrong = False
             #c.execute("select id from folder where parent_folder_id = ? and hash_is_wrong = 1")
@@ -309,17 +316,19 @@ class Model(object):
                 #c.execute("select id from file where folder_id = ? and hash_is_wrong = 1")
                 #if c.fetchall():
                     #isWrong = True
-        
-        c.execute("update folder set is_ok = ? where id = ?", (0 if isOk else 1, fo.id_))
+        c = self.conn.cursor()
+        c.execute("update folder set is_ok = ? where id = ?", (1 if isOk else 0, fo.id_))
         fo.is_ok = isOk
         return True
         
     def set_folder_hash(self, fo, hashSum):
+        """ Returns True if the hash was set """
         if fo.hash_ == hashSum:
-            return
+            return False
         self.conn.cursor().execute('update folder set hash = ? where id = ?',
                                    (hashSum, fo.id_))
         fo.hash_ = hashSum
+        return True
         
         
         
@@ -493,30 +502,35 @@ class CheckFilesAction(Action):
         }
     
     def update_parent_folder_is_ok(self, fo):
-        """ Will recheck the parent folder of this folder, is the is_ok-values 
+        """ Will recheck the parent folder of this folder, if the is_ok-values 
         does not match """
         if fo.is_mount_point:
             return
-        
         parent_fo = self.model.get_folder_by_id(fo.parent_folder_id)
-        if fo.is_ok == parent_fo.is_ok:
+        #print fo.is_ok == parent_fo.is_ok, fo.is_ok, parent_fo.is_ok
+        if fo.hash_ and parent_fo.hash_ and fo.is_ok == parent_fo.is_ok:
             return
         else:
             child_files = self.model.get_files(parent_fo)
             child_folders = self.model.get_child_folders(parent_fo)
-            was_changed = self.check_folder_is_ok(parent_fo, child_files, child_folders)
+            was_changed = self.check_folder_is_ok(parent_fo, child_folders, child_files)
             if was_changed and not parent_fo.is_mount_point:
-                parent_parent_folder_id = self.model.get_folder_by_id(parent_fo.parent_folder_id)
-                self.update_parent_folder_is_ok(parent_parent_folder_id)
+                self.update_parent_folder_is_ok(parent_fo)
     
-    def check_folder_is_ok(self, fo, child_folders, child_files):
+    def check_folder_is_ok(self, fo, child_folders=None, child_files=None):
         """ Returns False if the folder was not ok """
+        if not child_folders:
+            child_folders = self.model.get_child_folders(fo)
+        if not child_files:
+            child_files = self.model.get_files(fo)
+            
         for child_fo in child_folders:
             if not child_fo.is_ok:
                 was_changed = self.model.set_folder_is_ok(fo, False)
                 return was_changed
 
         for child_fi in child_files:
+            print child_fi
             if child_fi.hash_is_wrong:
                 was_changed = self.model.set_folder_is_ok(fo, False)
                 return was_changed
@@ -576,6 +590,7 @@ class CheckFilesAction(Action):
                 return
             for info in self.check_file(self.path, fi):
                 yield info
+            self.check_folder_is_ok(fi.folder)
             self.update_parent_folder_is_ok(fi.folder)
         else:
             fo = self.model.get_folder_by_path(self.path)
