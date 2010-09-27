@@ -1,0 +1,29 @@
+Notiz:
+es gibt mehrere use cases, in denen viele dateien gehasht werden müssen und eine fortschritsanzeige sinnvoll wäre:
+ * importieren von dateien
+ * prüfen von dateien
+ * wiederaufnahme eines pausierten imports nach neustart von software
+Für eine Fortschrittsanzeige ist notwenig:
+1) erfassung aller zu hashender daeteien
+2) hashvorgang
+3) rekursives update von folder.is_ok nach unten und oben
+vielleicht wäre es sinnvoll, die vorgänge 2 und 3 in die Hasher-klasse auszulagern und für das checken und importieren zu verwenden. das entfernen von dateien könnte 3 gebrauchen.
+Ein import kann demnach erst beim hashen programmneustart-übergreifend pausiert werden. Für die fortsetzung eines imports nach programmneustart müssen alle folder/files unterhalb des import-roots neu erfasst werden.
+
+
+TODO:
+ * test dict für dateien bauen
+ * Ordner rekursiv rot färben / hashes für verzeichnisse implementieren
+ * wenn eine datei gelöscht wird, kann geprüft werden, ob sie die letzte im ordner war. wenn ja, kann der ordner auch gelöscht werden
+ * DB-Check: gibt es verwaiste äste oder leere ordner?
+ * was soll ich beim importieren mit nicht lesbaren dateien machen? bzw allgemein bei errors?
+
+ * entfernen und prüfen sollte keine action in der liste anlegen, wenn das item nicht in der db war
+ * vielleicht wäre es besser, wenn beim importieren zuerst alle dateien importiert, und dann die hashes berechnet werden. dann kann beim hashen der exakte fortschritt angezeigt werden
+ * aktionen abbrechen: fragen, ob die bisherigen änderungen übernommen werden sollen.
+ * problem: man sieht die farbe der selektierten datei nicht (gelb oder rot)
+
+Erledigt:
+ * bug beim import
+ * folder-methode im model auseinander ziehen
+ * die anzahl der geänderten elemente einer action im statusfenster anzeigen
