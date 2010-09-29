@@ -18,6 +18,7 @@ def _one(cursor):
 class DB_Object(object):
     ATTRIBUTES = frozenset()
     RELATIONS = frozenset()
+    EXTRA_ATTR = frozenset()
     NAME = ''
     
     def __init__(self, **kwargs):
@@ -30,6 +31,11 @@ class DB_Object(object):
                     setattr(self, a, kwargs.pop(a))
                 except KeyError:
                     raise AttributeError('Keyword arg "%s" is required'%a)
+
+            for a in self.EXTRA_ATTR:
+                if a in kwargs:
+                    setattr(self, a, kwargs.pop(a))
+                   
             if kwargs:
                 raise ValueError('Unknown keyword arg(s): %s'%kwargs)
 
@@ -48,6 +54,7 @@ class DB_Object(object):
 class DB_File(DB_Object):
     ATTRIBUTES = frozenset(['id_', 'name', 'hash_', 'hash_is_wrong'])
     RELATIONS = frozenset(['folder'])
+    EXTRA_ATTR = frozenset(['size'])
     hash_is_wrong=None #TODO
     def __init__(self, **kwargs):
         super(DB_File, self).__init__(**kwargs)
@@ -154,7 +161,7 @@ class Model(object):
         return DB_File()
     
     
-    def insert_file(self, path, fo=DB_Folder(), newHashSum=None):
+    def insert_file(self, path, fo=DB_Folder(), newHashSum=None, size=None):
         self.log('insert_file: path=%s, folder_id=%s'%(path, fo))
         
         if os.path.islink(path):
@@ -177,7 +184,8 @@ class Model(object):
                      folder=fo,
                      name=filename,
                      hash_=newHashSum,
-                     hash_is_wrong=False)
+                     hash_is_wrong=False,
+                     size=size)
         fo.child_files[fi.id_] = fi
         
         return fi
@@ -331,20 +339,13 @@ class Model(object):
         """ returns True if is_ok was changed"""
         if fo.is_ok == isOk:
             return False
-
-        
-        #if isWrong is None:
-            #isWrong = False
-            #c.execute("select id from folder where parent_folder_id = ? and hash_is_wrong = 1")
-            #if c.fetchall():
-                #isWrong = True
-            #else:
-                #c.execute("select id from file where folder_id = ? and hash_is_wrong = 1")
-                #if c.fetchall():
-                    #isWrong = True
         c = self.conn.cursor()
         c.execute("update folder set is_ok = ? where id = ?", (1 if isOk else 0, fo.id_))
         fo.is_ok = isOk
+        
+        if not isOk:
+            self.set_folder_hash(fo, None)
+            
         return True
         
     def set_folder_hash(self, fo, hashSum):
@@ -356,9 +357,6 @@ class Model(object):
         fo.hash_ = hashSum
         return True
         
-        
-        
-    #def add_to_folder_hash(self)
     def get_stats(self):
         c = self.conn.cursor()
         c.execute("""select count(*) from file""")
@@ -368,32 +366,100 @@ class Model(object):
         return {'files': noFiles, 'folders': noFolders}
     
     
-class Hasher(object):
-    CHUNK_SIZE = 1024*1024
-    _hash = None
+#class Hasher(object):
+    #CHUNK_SIZE = 1024*1024
+    #_hash = None
     
-    def read_hash(self, filePath):
-        self._size = os.path.getsize(filePath)
+    ##def read_hash(self, filePath):
+        ##self._size = os.path.getsize(filePath)
+        ##pos = 0
+        ##h = hashlib.sha1()
+        ##with open(filePath, 'r') as fi:
+            ##while True:
+                ##d = fi.read(self.CHUNK_SIZE)
+                ##if not d: break
+                ##h.update(d)
+                ##pos += self.CHUNK_SIZE
+                ##if pos > self._size:
+                    ##pos = self._size
+                ##yield pos*100/self._size
+                
+        ##self._hash = h.hexdigest()
+         
+    #def get_hash(self):
+        #return self._hash
+    
+    #def get_size(self):
+        #return self._size
+    
+
+class Hasher(object):
+    def __init__(self, model, noFiles, totalSize):
+        self.noFiles = noFiles
+        self.totalSize = totalSize
+        self.currentSize = 0
+        self.model = model
+    
+    def process_file(self, fi):
         pos = 0
         h = hashlib.sha1()
+        filePath = os.path.join(fi.folder.full_path, fi.name)
         with open(filePath, 'r') as fi:
             while True:
                 d = fi.read(self.CHUNK_SIZE)
                 if not d: break
                 h.update(d)
                 pos += self.CHUNK_SIZE
-                if pos > self._size:
-                    pos = self._size
-                yield pos*100/self._size
-                
-        self._hash = h.hexdigest()
+                if pos > fi.size:
+                    pos = fi.size
+                yield pos*100/fi.size, 'Hashing (%s%%) %s'%(pos, path)
+        self.model.set_file_hash(fi, h.hexdigest())
+        self.currentSize += fi.size        
+        
+    def hash_folder(self, fo):
+        """ Returns False if the folder was not ok """
+        if not fo.child_folders:
+            self.model.fill_child_folders(fo)
+        if not fo.child_files:
+            self.model.fill_child_files(fo)
+            
+        for child_fo in fo.child_folders.values():
+            if not child_fo.is_ok:
+                was_changed = self.model.set_folder_is_ok(fo, False)
+                return was_changed
+
+        for child_fi in fo.child_files.values():
+            if child_fi.hash_is_wrong:
+                was_changed = self.model.set_folder_is_ok(fo, False)
+                return was_changed
          
-    def get_hash(self):
-        return self._hash
+        h = hashlib.sha1()
+        for child_fo in fo.child_folders.values():
+            h.update(child_fo.hash_)
+        for child_fi in fo.child_files.values():
+            h.update(child_fi.hash_)
+        hashSum = h.hexdigest()
+        
+        if not fo.hash_:
+            was_changed = self.model.set_folder_hash(fo, hashSum)
+            return was_changed
+        else:
+            was_changed = self.model.set_folder_is_ok(fo, fo.hash_ == hashSum)
+            return was_changed
+        
+    def process_folder(self, fo):
+        progress = self.totalSize/self.currentSize if self.currentSize else 0
+        yield (progress, fo.full_path)
+        for child_fo in fo.child_folders.values():
+            for info in self.hash_folder(fo):
+                yield info
+        for child_fi in fo.child_files.values():
+            for info in self.hash_file(fi):
+                yield info
+        
+        self.hash_folder(fo)
     
-    def get_size(self):
-        return self._size
-    
+        
     
 class ImportFilesAction(Action):
     def __init__(self, path):
@@ -412,22 +478,33 @@ class ImportFilesAction(Action):
             'noFiles': self._noFiles
         }
     
+    #def import_file(self, path, fo):
+        #fi = self.model.get_file_by_path(path, fo)
+        #if not fi.is_none():
+            #return
+
+        #h = Hasher()
+        #for pos in h.read_hash(path):
+            #yield None, 'Hashing (%s%%) %s'%(pos, path)
+        #fi = self.model.insert_file(path, fo=fo, newHashSum=h.get_hash())
+        #self._totalSize += h.get_size()
+        #self._noFiles += 1
+        #yield ('%s files imported'%self._noFiles, None)
+        #if fi.is_none():
+            #raise Exception('Import failed: %s (%s)' % (path, folder_id))
+                
     def import_file(self, path, fo):
         fi = self.model.get_file_by_path(path, fo)
         if not fi.is_none():
             return
 
-        h = Hasher()
-        for pos in h.read_hash(path):
-            yield None, 'Hashing (%s%%) %s'%(pos, path)
-        fi = self.model.insert_file(path, fo=fo, newHashSum=h.get_hash())
-        self._totalSize += h.get_size()
+        fi = self.model.insert_file(path, fo=fo, size=os.path.getsize(path))
+        self._totalSize += fi.size
         self._noFiles += 1
-        yield ('%s files imported'%self._noFiles, None)
         if fi.is_none():
-            raise Exception('Import failed: %s (%s)' % (path, folder_id))
-                
- 
+            raise Exception('File %s was none'%path)
+        return fi
+    
     def import_folder(self, path, parent_fo=DB_Folder()):
         yield(None, path)
         fo = self.model.get_folder_by_path(path, parent_fo)
@@ -445,8 +522,7 @@ class ImportFilesAction(Action):
                     yield info
 
             elif os.path.isfile(el):
-                for info in self.import_file(el, fo):
-                    yield info
+                self.import_file(el, fo)
     
     def run_action(self):
         start = time.time()
@@ -456,13 +532,19 @@ class ImportFilesAction(Action):
             fo = self.model.get_folder_by_path(folder_path)
             if fo.is_none():
                 fo = self.model.insert_folder(folder_path)
-                
-            for info in self.import_file(self.path, fo):
+            fi = self.import_file(self.path, fo)
+            h = Hasher(self.model, 1, fi.size)
+            for info in h.process_file(fi):
                 yield info
             yield (100, self.path)
         else:
             for info in self.import_folder(self.path):
                 yield info
+            fo = self.model.get_folder_by_path(self.path)
+            h = Hasher(self.model, self._noFiles, self._totalSize)
+            for info in h.process_folder(fo):
+                yield info
+            
         self.model.commit_and_close()
         self._duration = time.time() - start
         s = '%s files total'%self._noFiles
@@ -533,7 +615,6 @@ class CheckFilesAction(Action):
         if fo.is_mount_point:
             return
         parent_fo = self.model.get_folder_by_id(fo.parent_folder_id)
-        #print fo.is_ok == parent_fo.is_ok, fo.is_ok, parent_fo.is_ok
         if fo.hash_ and parent_fo.hash_ and fo.is_ok == parent_fo.is_ok:
             return
         else:
@@ -541,36 +622,36 @@ class CheckFilesAction(Action):
             if was_changed and not parent_fo.is_mount_point:
                 self.update_parent_folder_is_ok(parent_fo)
     
-    def check_folder_is_ok(self, fo):
-        """ Returns False if the folder was not ok """
-        if not fo.child_folders:
-            self.model.fill_child_folders(fo)
-        if not fo.child_files:
-            self.model.fill_child_files(fo)
+    #def check_folder_is_ok(self, fo):
+        #""" Returns False if the folder was not ok """
+        #if not fo.child_folders:
+            #self.model.fill_child_folders(fo)
+        #if not fo.child_files:
+            #self.model.fill_child_files(fo)
             
-        for child_fo in fo.child_folders.values():
-            if not child_fo.is_ok:
-                was_changed = self.model.set_folder_is_ok(fo, False)
-                return was_changed
+        #for child_fo in fo.child_folders.values():
+            #if not child_fo.is_ok:
+                #was_changed = self.model.set_folder_is_ok(fo, False)
+                #return was_changed
 
-        for child_fi in fo.child_files.values():
-            if child_fi.hash_is_wrong:
-                was_changed = self.model.set_folder_is_ok(fo, False)
-                return was_changed
+        #for child_fi in fo.child_files.values():
+            #if child_fi.hash_is_wrong:
+                #was_changed = self.model.set_folder_is_ok(fo, False)
+                #return was_changed
          
-        h = hashlib.sha1()
-        for child_fo in fo.child_folders.values():
-            h.update(child_fo.hash_)
-        for child_fi in fo.child_files.values():
-            h.update(child_fi.hash_)
-        hashSum = h.hexdigest()
+        #h = hashlib.sha1()
+        #for child_fo in fo.child_folders.values():
+            #h.update(child_fo.hash_)
+        #for child_fi in fo.child_files.values():
+            #h.update(child_fi.hash_)
+        #hashSum = h.hexdigest()
         
-        if not fo.hash_:
-            was_changed = self.model.set_folder_hash(fo, hashSum)
-            return was_changed
-        else:
-            was_changed = self.model.set_folder_is_ok(fo, fo.hash_ == hashSum)
-            return was_changed
+        #if not fo.hash_:
+            #was_changed = self.model.set_folder_hash(fo, hashSum)
+            #return was_changed
+        #else:
+            #was_changed = self.model.set_folder_is_ok(fo, fo.hash_ == hashSum)
+            #return was_changed
             
 
     def check_file(self, filePath, fi):
