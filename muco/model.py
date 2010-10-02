@@ -8,13 +8,7 @@ import time
 
 from action import Action
 
-def _one(cursor):
-    res = cursor.fetchone()
-    if res is None:
-        return None
-    else:
-        return res[0]
-    
+   
 class DB_Object(object):
     ATTRIBUTES = frozenset()
     RELATIONS = frozenset()
@@ -52,9 +46,9 @@ class DB_Object(object):
 
         
 class DB_File(DB_Object):
-    ATTRIBUTES = frozenset(['id_', 'name', 'hash_', 'hash_is_wrong'])
+    ATTRIBUTES = frozenset(['id_', 'name', 'hash_', 'hash_is_wrong', 'filesize'])
     RELATIONS = frozenset(['folder'])
-    EXTRA_ATTR = frozenset(['size'])
+    #EXTRA_ATTR = frozenset(['size'])
     hash_is_wrong=None #TODO
     def __init__(self, **kwargs):
         super(DB_File, self).__init__(**kwargs)
@@ -149,19 +143,19 @@ class Model(object):
         
         # select file
         c = self.conn.cursor()
-        c.execute("""select id, folder_id, name, hash, hash_is_wrong from file 
+        c.execute("""select id, folder_id, name, hash, hash_is_wrong, filesize from file 
                      where name = ? and folder_id = ?""", (filename, fo.id_))
         res = c.fetchone()
         if res:
             fi = DB_File(id_=res[0], folder=fo, name=res[2], hash_=res[3],
-                           hash_is_wrong=res[4])
+                           hash_is_wrong=res[4], filesize=res[5])
             fo.child_files[fi.id_] = fi
             return fi
         
         return DB_File()
     
     
-    def insert_file(self, path, fo=DB_Folder(), newHashSum=None, size=None):
+    def insert_file(self, path, fo=DB_Folder(), newHashSum=None, filesize=None):
         self.log('insert_file: path=%s, folder_id=%s'%(path, fo))
         
         if os.path.islink(path):
@@ -178,14 +172,14 @@ class Model(object):
                 return DB_File()
         
         c = self.conn.cursor()
-        c.execute("insert into file (name, folder_id, hash) values (?, ?, ?)",
-                  (filename, fo.id_, newHashSum))
+        c.execute("insert into file (name, folder_id, hash, filesize) values (?, ?, ?, ?)",
+                  (filename, fo.id_, newHashSum, filesize))
         fi = DB_File(id_=c.lastrowid, 
                      folder=fo,
                      name=filename,
                      hash_=newHashSum,
                      hash_is_wrong=False,
-                     size=size)
+                     filesize=filesize)
         fo.child_files[fi.id_] = fi
         
         return fi
@@ -277,7 +271,7 @@ class Model(object):
                          parent_folder_id=parent_folder_id,
                          is_mount_point=is_mount_point,
                          hash_=None,
-                         is_ok=False)
+                         is_ok=True)
         
         if not parent_fo.is_none():
             parent_fo.child_folders[fo.id_] = fo
@@ -316,9 +310,9 @@ class Model(object):
     
     def fill_child_files(self, fo):
         c = self.conn.cursor()
-        c.execute("select id, name, hash, hash_is_wrong from file where folder_id = ?", (fo.id_, ))
+        c.execute("select id, name, hash, hash_is_wrong, filesize from file where folder_id = ?", (fo.id_, ))
         for row in c.fetchall():
-            fi = DB_File(id_=row[0], name=row[1], hash_=row[2], hash_is_wrong=row[3], folder=fo)
+            fi = DB_File(id_=row[0], name=row[1], hash_=row[2], hash_is_wrong=row[3], filesize=row[4], folder=fo)
             fo.child_files[fi.id_] = fi
     
     def set_file_hash_is_wrong(self, fi, is_wrong):
@@ -352,72 +346,31 @@ class Model(object):
         """ Returns True if the hash was set """
         if fo.hash_ == hashSum:
             return False
-        self.conn.cursor().execute('update folder set hash = ? where id = ?',
-                                   (hashSum, fo.id_))
+        self.conn.execute('update folder set hash = ? where id = ?',
+                          (hashSum, fo.id_))
         fo.hash_ = hashSum
         return True
         
     def get_stats(self):
-        c = self.conn.cursor()
-        c.execute("""select count(*) from file""")
-        noFiles = _one(c)
-        c.execute(""" select count(*) from folder""")
-        noFolders = _one(c)
-        return {'files': noFiles, 'folders': noFolders}
+        noFiles = list(self.conn.execute("select count(*) from file"))[0]
+        noFolders = list(self.conn.execute("select count(*) from folder"))[0]
+        totalSize = list(self.conn.execute("select sum(filesize)/(1024*1024) from file"))
+        return {'files': noFiles, 'folders': noFolders, 'totalSize [mb]': totalSize}
     
     
-#class Hasher(object):
-    #CHUNK_SIZE = 1024*1024
-    #_hash = None
-    
-    ##def read_hash(self, filePath):
-        ##self._size = os.path.getsize(filePath)
-        ##pos = 0
-        ##h = hashlib.sha1()
-        ##with open(filePath, 'r') as fi:
-            ##while True:
-                ##d = fi.read(self.CHUNK_SIZE)
-                ##if not d: break
-                ##h.update(d)
-                ##pos += self.CHUNK_SIZE
-                ##if pos > self._size:
-                    ##pos = self._size
-                ##yield pos*100/self._size
-                
-        ##self._hash = h.hexdigest()
-         
-    #def get_hash(self):
-        #return self._hash
-    
-    #def get_size(self):
-        #return self._size
-    
-
 class Hasher(object):
+    CHUNK_SIZE = 1024*1024
+    
     def __init__(self, model, noFiles, totalSize):
         self.noFiles = noFiles
         self.totalSize = totalSize
         self.currentSize = 0
         self.model = model
     
-    def process_file(self, fi):
-        pos = 0
-        h = hashlib.sha1()
-        filePath = os.path.join(fi.folder.full_path, fi.name)
-        with open(filePath, 'r') as fi:
-            while True:
-                d = fi.read(self.CHUNK_SIZE)
-                if not d: break
-                h.update(d)
-                pos += self.CHUNK_SIZE
-                if pos > fi.size:
-                    pos = fi.size
-                yield pos*100/fi.size, 'Hashing (%s%%) %s'%(pos, path)
-        self.model.set_file_hash(fi, h.hexdigest())
-        self.currentSize += fi.size        
-        
+    
     def hash_folder(self, fo):
         """ Returns False if the folder was not ok """
+        print 'hash folder', fo
         if not fo.child_folders:
             self.model.fill_child_folders(fo)
         if not fo.child_files:
@@ -446,6 +399,40 @@ class Hasher(object):
         else:
             was_changed = self.model.set_folder_is_ok(fo, fo.hash_ == hashSum)
             return was_changed
+        return False
+        
+    def update_parent_folder_is_ok(self, fo):
+        """ Will recheck the parent folder of this folder, if the is_ok-values 
+        does not match """
+        if fo.is_mount_point:
+            return
+        parent_fo = self.model.get_folder_by_id(fo.parent_folder_id)
+        if fo.hash_ and parent_fo.hash_ and fo.is_ok == parent_fo.is_ok:
+            return
+        else:
+            was_changed = self.hash_folder(parent_fo)
+            if was_changed and not parent_fo.is_mount_point:
+                self.update_parent_folder_is_ok(parent_fo)
+        
+    def process_file(self, fi):
+        pos = 0
+        h = hashlib.sha1()
+        filePath = os.path.join(fi.folder.full_path, fi.name)
+        with open(filePath, 'r') as f:
+            while True:
+                d = f.read(self.CHUNK_SIZE)
+                if not d: break
+                h.update(d)
+                pos += self.CHUNK_SIZE
+                if pos > fi.filesize:
+                    pos = fi.filesize
+                yield pos*100/fi.filesize, 'Hashing (%s%%) %s'%(pos, filePath)
+        
+        if fi.hash_:
+            self.model.set_file_hash_is_wrong(fi, fi.hash_ != h.hexdigest())
+        else:
+            self.model.set_file_hash(fi, h.hexdigest())
+        self.currentSize += fi.filesize        
         
     def process_folder(self, fo):
         progress = self.totalSize/self.currentSize if self.currentSize else 0
@@ -454,7 +441,7 @@ class Hasher(object):
             for info in self.hash_folder(fo):
                 yield info
         for child_fi in fo.child_files.values():
-            for info in self.hash_file(fi):
+            for info in self.process_file(child_fi):
                 yield info
         
         self.hash_folder(fo)
@@ -478,34 +465,19 @@ class ImportFilesAction(Action):
             'noFiles': self._noFiles
         }
     
-    #def import_file(self, path, fo):
-        #fi = self.model.get_file_by_path(path, fo)
-        #if not fi.is_none():
-            #return
-
-        #h = Hasher()
-        #for pos in h.read_hash(path):
-            #yield None, 'Hashing (%s%%) %s'%(pos, path)
-        #fi = self.model.insert_file(path, fo=fo, newHashSum=h.get_hash())
-        #self._totalSize += h.get_size()
-        #self._noFiles += 1
-        #yield ('%s files imported'%self._noFiles, None)
-        #if fi.is_none():
-            #raise Exception('Import failed: %s (%s)' % (path, folder_id))
-                
     def import_file(self, path, fo):
         fi = self.model.get_file_by_path(path, fo)
         if not fi.is_none():
             return
 
-        fi = self.model.insert_file(path, fo=fo, size=os.path.getsize(path))
-        self._totalSize += fi.size
+        fi = self.model.insert_file(path, fo=fo, filesize=os.path.getsize(path))
+        self._totalSize += fi.filesize
         self._noFiles += 1
         if fi.is_none():
             raise Exception('File %s was none'%path)
         return fi
     
-    def import_folder(self, path, parent_fo=DB_Folder()):
+    def import_folder(self, path, parent_fo=DB_Folder(), startingFolder=None):
         yield(None, path)
         fo = self.model.get_folder_by_path(path, parent_fo)
         if fo.is_none():
@@ -523,6 +495,10 @@ class ImportFilesAction(Action):
 
             elif os.path.isfile(el):
                 self.import_file(el, fo)
+        
+        # Hack to return the folder
+        if not startingFolder is None:
+            startingFolder.append(fo)
     
     def run_action(self):
         start = time.time()
@@ -533,17 +509,22 @@ class ImportFilesAction(Action):
             if fo.is_none():
                 fo = self.model.insert_folder(folder_path)
             fi = self.import_file(self.path, fo)
-            h = Hasher(self.model, 1, fi.size)
+            h = Hasher(self.model, 1, fi.filesize)
             for info in h.process_file(fi):
                 yield info
+            fo.child_files.clear() # remove the one child file, so update_parent_folder select the complete list from DB!
+            h.hash_folder(fo)
+            h.update_parent_folder_is_ok(fo)
             yield (100, self.path)
         else:
-            for info in self.import_folder(self.path):
+            folderContainer = []
+            for info in self.import_folder(self.path, startingFolder=folderContainer):
                 yield info
-            fo = self.model.get_folder_by_path(self.path)
+            fo = folderContainer[0]
             h = Hasher(self.model, self._noFiles, self._totalSize)
             for info in h.process_folder(fo):
                 yield info
+            h.update_parent_folder_is_ok(fo)
             
         self.model.commit_and_close()
         self._duration = time.time() - start
@@ -574,6 +555,7 @@ class DeleteFilesAction(Action):
         self.model.delete_folder(fo)
     
     def run_action(self):
+        asdf(' ich muss hier noch update_folder_is _ok einbauen')
         start = time.time()
         self.model = Model(logger=printer).set_connection(get_connection())
         if os.path.isfile(self.path):
@@ -609,82 +591,18 @@ class CheckFilesAction(Action):
             'noFiles': self._noFiles
         }
     
-    def update_parent_folder_is_ok(self, fo):
-        """ Will recheck the parent folder of this folder, if the is_ok-values 
-        does not match """
-        if fo.is_mount_point:
-            return
-        parent_fo = self.model.get_folder_by_id(fo.parent_folder_id)
-        if fo.hash_ and parent_fo.hash_ and fo.is_ok == parent_fo.is_ok:
-            return
-        else:
-            was_changed = self.check_folder_is_ok(parent_fo)
-            if was_changed and not parent_fo.is_mount_point:
-                self.update_parent_folder_is_ok(parent_fo)
-    
-    #def check_folder_is_ok(self, fo):
-        #""" Returns False if the folder was not ok """
-        #if not fo.child_folders:
-            #self.model.fill_child_folders(fo)
-        #if not fo.child_files:
-            #self.model.fill_child_files(fo)
+   
+    def read_folder(self, fo):
+        self.model.fill_child_files(fo)
+        for child_fi in fo.child_files.values():
+            self._totalSize += child_fi.filesize
+            self._noFiles += 1
             
-        #for child_fo in fo.child_folders.values():
-            #if not child_fo.is_ok:
-                #was_changed = self.model.set_folder_is_ok(fo, False)
-                #return was_changed
-
-        #for child_fi in fo.child_files.values():
-            #if child_fi.hash_is_wrong:
-                #was_changed = self.model.set_folder_is_ok(fo, False)
-                #return was_changed
-         
-        #h = hashlib.sha1()
-        #for child_fo in fo.child_folders.values():
-            #h.update(child_fo.hash_)
-        #for child_fi in fo.child_files.values():
-            #h.update(child_fi.hash_)
-        #hashSum = h.hexdigest()
-        
-        #if not fo.hash_:
-            #was_changed = self.model.set_folder_hash(fo, hashSum)
-            #return was_changed
-        #else:
-            #was_changed = self.model.set_folder_is_ok(fo, fo.hash_ == hashSum)
-            #return was_changed
-            
-
-    def check_file(self, filePath, fi):
-        h = Hasher()
-        for pos in h.read_hash(filePath):
-            yield None, 'Hashing (%s%%) %s'%(pos, filePath)
-        
-        if fi.hash_ is None:
-            self.model.set_file_hash(fi, h.get_hash())
-        else:
-            self.model.set_file_hash_is_wrong(fi, fi.hash_ != h.get_hash())
-        
-        self._totalSize += h.get_size()
-        self._noFiles += 1
-        yield ('%s files checked'%self._noFiles, None)
-    
-    def check_folder(self, fo):
-        # Check subfolders
         self.model.fill_child_folders(fo)
         for child_fo in fo.child_folders.values():
-            yield (None, child_fo.full_path)
-            for info in self.check_folder(child_fo):
+            for info in self.read_folder(child_fo):
                 yield info
         
-        # Check files
-        self.model.fill_child_files(fo)
-        for fi in fo.child_files.values():
-            filePath = os.path.join(fo.full_path, fi.name)
-            for info in self.check_file(filePath, fi):
-                yield info
-                
-        self.check_folder_is_ok(fo)
-    
     def run_action(self):
         start = time.time()
         self.model = Model(logger=printer).set_connection(get_connection())
@@ -692,17 +610,22 @@ class CheckFilesAction(Action):
             fi = self.model.get_file_by_path(self.path)
             if fi.is_none():
                 return
-            for info in self.check_file(self.path, fi):
+            h = Hasher(self.model, 1, fi.filesize)
+            for info in h.process_file(fi):
                 yield info
-            self.check_folder_is_ok(fi.folder)
-            self.update_parent_folder_is_ok(fi.folder)
+            fi.folder.child_files.clear() # remove the one child file, so update_parent_folder select the complete list from DB!
+            h.hash_folder(fi.folder)
+            h.update_parent_folder_is_ok(fi.folder)
         else:
             fo = self.model.get_folder_by_path(self.path)
             if fo.is_none():
                 return
-            for info in self.check_folder(fo):
+            for info in self.read_folder(fo):
                 yield info
-            self.update_parent_folder_is_ok(fo)
+            h = Hasher(self.model, self._noFiles, self._totalSize)
+            for info in h.process_folder(fo):
+                yield info
+            h.update_parent_folder_is_ok(fo)
         self.model.commit_and_close()
         self._duration = time.time() - start
         s = '%s files total'%self._noFiles
@@ -728,6 +651,7 @@ if __name__ == '__main__':
     m.set_connection(get_connection(dbPath))
     if not databasePresent:
         m.make_schema()
+        print 'schema created'
     
     m.commit_and_close()
     

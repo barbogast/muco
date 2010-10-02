@@ -56,6 +56,7 @@ create table file (
   name             text,
   hash             text,
   hash_is_wrong    integer default 0, --bool
+  filesize         integer,
   filetype         text,
   encoding         text,
   bitrate          text
