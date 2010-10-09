@@ -350,6 +350,19 @@ class Model(object):
                           (hashSum, fo.id_))
         fo.hash_ = hashSum
         return True
+    
+    #def update_folder(self, fo, **kwargs):
+        #sets = []
+        #for k, v in kwargs.iteritems():
+            #if fo[k] != v:
+                #break
+            #sets.append(k+'=:'+k)
+            #fo[k] = v
+        #else:
+            #return False
+        
+        #stmt = 'update folder set %s where id = ?'%(','.join(sets))
+        #self.conn.execute(stmt, kwargs)                          
         
     def get_stats(self):
         noFiles = list(self.conn.execute("select count(*) from file"))[0]
@@ -370,7 +383,6 @@ class Hasher(object):
     
     def hash_folder(self, fo):
         """ Returns False if the folder was not ok """
-        print 'hash folder', fo
         if not fo.child_folders:
             self.model.fill_child_folders(fo)
         if not fo.child_files:
@@ -393,13 +405,13 @@ class Hasher(object):
             h.update(child_fi.hash_)
         hashSum = h.hexdigest()
         
-        if not fo.hash_:
-            was_changed = self.model.set_folder_hash(fo, hashSum)
-            return was_changed
-        else:
+        if fo.hash_:
             was_changed = self.model.set_folder_is_ok(fo, fo.hash_ == hashSum)
             return was_changed
-        return False
+        else:
+            self.model.set_folder_hash(fo, hashSum)
+            self.model.set_folder_is_ok(fo, True)  # TODO: this could be merged in one stmt with model.updatefolder
+            return True
         
     def update_parent_folder_is_ok(self, fo):
         """ Will recheck the parent folder of this folder, if the is_ok-values 
@@ -438,7 +450,7 @@ class Hasher(object):
         progress = self.totalSize/self.currentSize if self.currentSize else 0
         yield (progress, fo.full_path)
         for child_fo in fo.child_folders.values():
-            for info in self.hash_folder(fo):
+            for info in self.process_folder(child_fo):
                 yield info
         for child_fi in fo.child_files.values():
             for info in self.process_file(child_fi):
@@ -555,7 +567,7 @@ class DeleteFilesAction(Action):
         self.model.delete_folder(fo)
     
     def run_action(self):
-        asdf(' ich muss hier noch update_folder_is _ok einbauen')
+        print ' ich muss hier noch update_folder_is _ok einbauen'
         start = time.time()
         self.model = Model(logger=printer).set_connection(get_connection())
         if os.path.isfile(self.path):
@@ -589,8 +601,7 @@ class CheckFilesAction(Action):
             'totalSize': '%.3f'%(self._totalSize/(1024.*1024.)),
             'duration': int(self._duration),
             'noFiles': self._noFiles
-        }
-    
+        }    
    
     def read_folder(self, fo):
         self.model.fill_child_files(fo)
