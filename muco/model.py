@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 
 import sqlite3
-import apsw
 import os
 import hashlib
 import time
@@ -48,7 +47,6 @@ class DB_Object(object):
 class DB_File(DB_Object):
     ATTRIBUTES = frozenset(['id_', 'name', 'hash_', 'hash_is_wrong', 'filesize'])
     RELATIONS = frozenset(['folder'])
-    #EXTRA_ATTR = frozenset(['size'])
     hash_is_wrong=None #TODO
     def __init__(self, **kwargs):
         super(DB_File, self).__init__(**kwargs)
@@ -64,8 +62,6 @@ class DB_Folder(DB_Object):
     ATTRIBUTES = frozenset(['id_', 'name', 'full_path', 'is_mount_point', 
                             'hash_', 'is_ok', 'parent_folder_id'])
     RELATIONS = frozenset(['parent_folder'])
-    full_path = None #TODO: should be removed
-    is_ok=None #TODO: should be removed
     
     @property
     def child_files(self):
@@ -366,10 +362,10 @@ class Model(object):
         #self.conn.execute(stmt, kwargs)                          
         
     def get_stats(self):
-        noFiles = list(self.conn.execute("select count(*) from file"))[0]
-        noFolders = list(self.conn.execute("select count(*) from folder"))[0]
-        totalSize = list(self.conn.execute("select sum(filesize)/(1024*1024) from file"))
-        return {'files': noFiles, 'folders': noFolders, 'totalSize [mb]': totalSize}
+        noFiles = list(self.conn.execute("select count(*) from file"))[0][0]
+        noFolders = list(self.conn.execute("select count(*) from folder"))[0][0]
+        totalSize = list(self.conn.execute("select sum(filesize) from file"))[0][0]
+        return {'files': noFiles, 'folders': noFolders, 'totalSize': totalSize}
     
     
 class Hasher(object):
@@ -565,8 +561,8 @@ class DeleteFilesAction(Action):
         self.model.fill_child_files(fo)
         if not fo.child_folders and not fo.child_files:
             self.model.delete_folder(fo)
-            parent_fo = self.model.get_folder_by_id(fo.parent_folder_id)
-            if not parent_fo.is_mount_point:
+            if not fo.is_mount_point:
+                parent_fo = self.model.get_folder_by_id(fo.parent_folder_id)
                 self.delete_parent_folder(parent_fo)
         else:
             h = Hasher(self.model, 1, 0, rehashFolders=True)
@@ -582,7 +578,6 @@ class DeleteFilesAction(Action):
         self.model.delete_folder(fo)
     
     def run_action(self):
-        print ' ich muss hier noch update_folder_is _ok einbauen'
         start = time.time()
         self.model = Model(logger=printer).set_connection(get_connection())
         if os.path.isfile(self.path):
@@ -597,8 +592,9 @@ class DeleteFilesAction(Action):
             fo = self.model.get_folder_by_path(self.path)
             for info in self.delete_folder(fo):
                 yield info
-            parent_fo = self.model.get_folder_by_id(fo.parent_folder_id)
-            self.delete_parent_folder(parent_fo)
+            if not fo.parent_folder_id is None:
+                parent_fo = self.model.get_folder_by_id(fo.parent_folder_id)
+                self.delete_parent_folder(parent_fo)
         self.model.commit_and_close()
         self._duration = time.time() - start
         yield(None, unicode(self.get_stats()))

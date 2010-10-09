@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 import sys
 
 from twisted.internet import threads
@@ -88,8 +90,7 @@ class FSModel(QtGui.QFileSystemModel):
 class StatusView(object):
     def __init__(self, w):
         self.w = w # the Qt widget
-        
-    
+
         
 class MainWindow(QtGui.QMainWindow):
     def __init__(self):
@@ -131,7 +132,9 @@ class MainWindow(QtGui.QMainWindow):
         
     def refresh_stats(self):
         stats = self.dbmodel.get_stats()
-        s = '%(folders)s Verzeichnisse\n%(files)s Dateien'%stats
+        
+        stats['totalSize'] = round(stats['totalSize']/(1024.*1024.), 3) if stats['totalSize'] else 0
+        s = u'%(folders)s Verzeichnisse\n%(files)s Dateien\n%(totalSize)s MB Gesamtgröße'%stats
         self.ui.textEdit.setPlainText(s)
         
         

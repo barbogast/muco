@@ -1,4 +1,54 @@
-Notiz:
+TODO:
+ * entfernen und prüfen sollte keine action in der liste anlegen, wenn das item nicht in der db war
+ Errors/Abbruch:
+   * was soll ich beim importieren mit nicht lesbaren dateien machen? bzw allgemein bei errors?
+   * abfangen von fehlern im model, mit abfrage beim benutzer (commit oder rolback?). wobei ich erst noch schauen muss, ob commit keine inconsistenzen macht.
+   * aktionen abbrechen: fragen, ob die bisherigen änderungen übernommen werden sollen.
+ * soll ich ein "last_checked" parameter für files oder folders einbauen?
+ * test dict für dateien bauen
+ * DB-Check: gibt es verwaiste äste oder leere ordner?
+ 
+ * problem: man sieht die farbe der selektierten datei nicht (gelb oder rot)
+
+ 
+
+= Use cases =
+ * Datensicherung (keine Media-Dateien)
+ * Filmsammlung: Komplexes Metadaten-Modell für Datei-Eigenschaften und Filmeigenschaften, Erfassung der Metadaten über amazon oder IMDB, Guck-Historie
+ * Musiksammlung
+ * Bildersammlung: Texte zu Bildern, Berechtigungskonzept
+ * Sporadisches Tauschen von Dateien
+ * Intensives Tauschen von Dateien
+
+ 
+= 1. Szenario =
+Man muss hash_is_wrong wieder auf True setzen können. Die beleitenden Textdateien wären wahrscheinlich auch gut.
+
+Ich tausche mit Sari, Familie, Ben. Ich kann sehen, wer welche Dateien hat, und wann er sie zum letzten mal geprüft hat (eigene Datensicherheits-Ansicht?).
+Ich könnte über xmlrpc mit https gehen, aber wie kann sich die andere seite identifizieren? mit ssl public/private keys?
+ich brauch ein berechtigungskonzept.
+
+Sichten:
+ * Dateien importieren
+ * eigene Dateien anschauen (mit datensicherheitsansicht?)
+ * fremde Dateien anschauen und vergleichen
+
+TwistedActionRunner (ohne threads)
+
+
+
+======================= Erledigt =============================
+ * bug beim import
+ * folder-methode im model auseinander ziehen
+ * die anzahl der geänderten elemente einer action im statusfenster anzeigen
+ * Ordner rekursiv rot färben / hashes für verzeichnisse implementieren
+ * wenn eine datei gelöscht wird, kann geprüft werden, ob sie die letzte im ordner war. wenn ja, kann der ordner auch gelöscht werden
+ * vielleicht wäre es besser, wenn beim importieren zuerst alle dateien importiert, und dann die hashes berechnet werden. dann kann beim hashen der exakte fortschritt angezeigt werden
+ * wenn eine datei gelöscht wird, kann geprüft werden, ob sie die letzte im ordner war. wenn ja, kann der ordner auch gelöscht werden
+ * vielleicht wäre es besser, wenn beim importieren zuerst alle dateien importiert, und dann die hashes berechnet werden. dann kann beim hashen der exakte fortschritt angezeigt werden
+
+
+= Refactoring vom Modell: Auslagerung des Hashing in eigene Klasse =
 es gibt mehrere use cases, in denen viele dateien gehasht werden müssen und eine fortschritsanzeige sinnvoll wäre:
  * importieren von dateien
  * prüfen von dateien
@@ -11,23 +61,3 @@ vielleicht wäre es sinnvoll, die vorgänge 2 und 3 in die Hasher-klasse auszula
 Ein import kann demnach erst beim hashen programmneustart-übergreifend pausiert werden. Für die fortsetzung eines imports nach programmneustart müssen alle folder/files unterhalb des import-roots neu erfasst werden.
 
 
-TODO:
- * test dict für dateien bauen
- * wenn eine datei gelöscht wird, kann geprüft werden, ob sie die letzte im ordner war. wenn ja, kann der ordner auch gelöscht werden
- * DB-Check: gibt es verwaiste äste oder leere ordner?
- * was soll ich beim importieren mit nicht lesbaren dateien machen? bzw allgemein bei errors?
-
- * entfernen und prüfen sollte keine action in der liste anlegen, wenn das item nicht in der db war
- * vielleicht wäre es besser, wenn beim importieren zuerst alle dateien importiert, und dann die hashes berechnet werden. dann kann beim hashen der exakte fortschritt angezeigt werden
- * aktionen abbrechen: fragen, ob die bisherigen änderungen übernommen werden sollen.
- * problem: man sieht die farbe der selektierten datei nicht (gelb oder rot)
-
-Erledigt:
- * bug beim import
- * folder-methode im model auseinander ziehen
- * die anzahl der geänderten elemente einer action im statusfenster anzeigen
- * Ordner rekursiv rot färben / hashes für verzeichnisse implementieren
-
-
- 
- 09.10.10, 10:00 - 
