@@ -13,7 +13,6 @@ Ein import kann demnach erst beim hashen programmneustart-übergreifend pausiert
 
 TODO:
  * test dict für dateien bauen
- * Ordner rekursiv rot färben / hashes für verzeichnisse implementieren
  * wenn eine datei gelöscht wird, kann geprüft werden, ob sie die letzte im ordner war. wenn ja, kann der ordner auch gelöscht werden
  * DB-Check: gibt es verwaiste äste oder leere ordner?
  * was soll ich beim importieren mit nicht lesbaren dateien machen? bzw allgemein bei errors?
@@ -27,3 +26,8 @@ Erledigt:
  * bug beim import
  * folder-methode im model auseinander ziehen
  * die anzahl der geänderten elemente einer action im statusfenster anzeigen
+ * Ordner rekursiv rot färben / hashes für verzeichnisse implementieren
+
+
+ 
+ 09.10.10, 10:00 - 

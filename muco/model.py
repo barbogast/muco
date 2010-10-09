@@ -52,11 +52,12 @@ class DB_File(DB_Object):
     hash_is_wrong=None #TODO
     def __init__(self, **kwargs):
         super(DB_File, self).__init__(**kwargs)
-        if self.hash_is_wrong is None or self.hash_is_wrong == 0:
-            self.hash_is_wrong = False
-        else:
-            self.hash_is_wrong = True
-            
+        if not self.is_none():
+            if self.hash_is_wrong is None or self.hash_is_wrong == 0:
+                self.hash_is_wrong = False
+            else:
+                self.hash_is_wrong = True
+                
         
 
 class DB_Folder(DB_Object):
@@ -83,12 +84,12 @@ class DB_Folder(DB_Object):
         self.__child_files = {}
         self.__child_folders = {}
     
-        if self.full_path and not self.name:
-            self.name = os.path.split(os.path.normpath(self.full_path))[1]
-        if self.is_ok is None or self.is_ok == 0:
-            self.is_ok = False
-        else:
-            self.is_ok = True
+        if not self.is_none():
+            if self.full_path and not self.name:
+                self.name = os.path.split(os.path.normpath(self.full_path))[1]
+                
+            self.is_ok = False if self.is_ok is None or self.is_ok == 0 else True
+            self.is_mount_point = False if self.is_mount_point is None or self.is_mount_point == 0 else True
         
         
 class Model(object):
@@ -374,14 +375,15 @@ class Model(object):
 class Hasher(object):
     CHUNK_SIZE = 1024*1024
     
-    def __init__(self, model, noFiles, totalSize):
+    def __init__(self, model, noFiles, totalSize, rehashFolders=True):
         self.noFiles = noFiles
         self.totalSize = totalSize
         self.currentSize = 0
         self.model = model
+        self.rehashFolders = rehashFolders
     
     
-    def hash_folder(self, fo):
+    def hash_folder(self, fo, inserting=False):
         """ Returns False if the folder was not ok """
         if not fo.child_folders:
             self.model.fill_child_folders(fo)
@@ -405,7 +407,7 @@ class Hasher(object):
             h.update(child_fi.hash_)
         hashSum = h.hexdigest()
         
-        if fo.hash_:
+        if fo.hash_ and not self.rehashFolders:
             was_changed = self.model.set_folder_is_ok(fo, fo.hash_ == hashSum)
             return was_changed
         else:
@@ -521,7 +523,7 @@ class ImportFilesAction(Action):
             if fo.is_none():
                 fo = self.model.insert_folder(folder_path)
             fi = self.import_file(self.path, fo)
-            h = Hasher(self.model, 1, fi.filesize)
+            h = Hasher(self.model, 1, fi.filesize, rehashFolders=True)
             for info in h.process_file(fi):
                 yield info
             fo.child_files.clear() # remove the one child file, so update_parent_folder select the complete list from DB!
@@ -533,7 +535,7 @@ class ImportFilesAction(Action):
             for info in self.import_folder(self.path, startingFolder=folderContainer):
                 yield info
             fo = folderContainer[0]
-            h = Hasher(self.model, self._noFiles, self._totalSize)
+            h = Hasher(self.model, self._noFiles, self._totalSize, rehashFolders=True)
             for info in h.process_folder(fo):
                 yield info
             h.update_parent_folder_is_ok(fo)
@@ -558,6 +560,19 @@ class DeleteFilesAction(Action):
             'duration': int(self._duration)
         }
     
+    def delete_parent_folder(self, fo):
+        self.model.fill_child_folders(fo)
+        self.model.fill_child_files(fo)
+        if not fo.child_folders and not fo.child_files:
+            self.model.delete_folder(fo)
+            parent_fo = self.model.get_folder_by_id(fo.parent_folder_id)
+            if not parent_fo.is_mount_point:
+                self.delete_parent_folder(parent_fo)
+        else:
+            h = Hasher(self.model, 1, 0, rehashFolders=True)
+            h.hash_folder(fo)
+            h.update_parent_folder_is_ok(fo)
+    
     def delete_folder(self, fo):
         self.model.fill_child_folders(fo)
         for child_fo in fo.child_folders.values():
@@ -575,12 +590,15 @@ class DeleteFilesAction(Action):
             if fi.is_none():
                 raise Exception('delete of file failed, file not in db: %s' % (self.path))
             self.model.delete_file(fi)
+            self.delete_parent_folder(fi.folder)
             yield (None, self.path)
         else:
             yield (None, self.path)
             fo = self.model.get_folder_by_path(self.path)
             for info in self.delete_folder(fo):
                 yield info
+            parent_fo = self.model.get_folder_by_id(fo.parent_folder_id)
+            self.delete_parent_folder(parent_fo)
         self.model.commit_and_close()
         self._duration = time.time() - start
         yield(None, unicode(self.get_stats()))
