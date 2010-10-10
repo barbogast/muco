@@ -1,4 +1,5 @@
 TODO:
+ * was mach ich mit datei links?
  * entfernen und prüfen sollte keine action in der liste anlegen, wenn das item nicht in der db war
  Errors/Abbruch:
    * was soll ich beim importieren mit nicht lesbaren dateien machen? bzw allgemein bei errors?
@@ -37,6 +38,124 @@ TwistedActionRunner (ohne threads)
 
 
 
+=================================================================================
+= Allgemeines =
+Muco ist ein Programm zum Verwalten und Tauschen von Audio-Dateien. Der Benutzer kann Audio-Dateien importieren. Dabei verbleiben die Datein an ihrem Platz, es wird lediglich das IndexFile in den Verzeichnissen abgelegt. Diese Dateien können dann kategorisiert, ... werden.
+Die Informationen zu den Audio-Dateien werden in einer DB gespeichert. Eine Datenbank ist eine "MucoDB". Das Programm kann immer nur eine MucoDB laden, allerdings können mehrere MucoDBs auf einem Computer existieren. Eine Audio-Datei kann in mehreren MucoDBs sein.
+
+= Arist und Release =
+Jede Audio-Datei kann einem oder mehreren Interpreten und/oder Releases zugehören.
+
+== Collections ==
+Innerhalb einer MucoDB kann es verschiedene Collections geben. Eine Collection enthält beliebig viele Audio-Dateien, eine Audio-Datei kann in beliebig vielen Collections sein. Collections werden vom Programmm und vom Benutzer angelegt. 
+Das Programm verwendet Collections, um eine Historie der Import- und Tauschvorgänge zu erstellen. Bei jedem Vorgang werden die neuen Audio-Dateien in einer eigenen Collection gespeichert, so dass der Benutzer einfach nachvollziehen kann, wann welche Datei hinzukam. So kann er die Dateien einfach Nachindexieren. Sollen auch Änderungsvorgänge als Collection abgelegt werden?
+Der Benutzer kann eigene Collections anlegen und die Lieder so in beliebige, konkurierenden Kategorien einordnen. Beispiele: Lieder mit weiblichem Sänger, Lieder für meine Tochter, traurige Lieder
+Wenn in einer Collection nur sehr wenig Lieder sind, könnte es sinnvoll sein, sie in Tags umzuwandeln.
+Eine Collection kann einem Benutzer gehören.
+
+== Genres ==
+Der Benutzer kann Artist/Release/Lieder einem oder mehrere Genre zuordnen. Technisch gesehen werden Genres als Collections dargestellt.
+
+== Tags ==
+Zusätzlich zu der Einordnung eines Liedes in Collectionen kann der Benutzer freie Stichworte für Artist/Release/Lieder vergeben. Später kann er die Sammlung danach durchsuchen. Wenn ein Tag sehr oft verwendet wird, wäre es vielleicht sinnvoll, das Tag in eine Collection umzuwandeln.
+
+== Mehr-Benutzer-Fähigkeit ==
+Eine MucoDB kann mehrere Benutzer haben. Benutzer können die Rechte "Hinzufügen" (Import), "Entfernen" (Dateien aus der Sammlung entfernen), "Ändern" (Metainformationen ändern) und "Lesen" (eigene Collections und Tags vergeben) haben. Collections (und Tags) gehören einem Benutzer. Wenn einem Benutzer Audio-Dateien gefallen, kann er sie seiner Gesammt-Collection hinzufügen. Beim Entfernen von Dateien kann so geprüft werden, ob alle Benutzer einverstanden sind.
+
+
+== Importieren von Dateien ==
+=== 1. Dateisystem scannen ===
+Hier wird ein ausgewählter Ordner rekursiv nach Audio-Dateien durchsucht. Gleichzeitig wird der Status von Audio-Dateien und Verzeichnissen untersucht.
+
+=== 2. Definition der Metadaten ===
+Für die gefundenen Dateien muss der Benutzer Metadaten definieren. Anhand der gefundenen Stati werden ihm Vorschläge gemacht
+Welche Metadaten müssen zwingend vorhanden sein?
+Mehrere Dateien können einem Release/MultiDiskRelease/Artist zugewiesen werden. Ein Release muss nicht zwangsläufig vollständig sein.
+GUI-Vorschlag: Items können markiert und per Drag&Drop auf Ziele fallengelassen werden. Lieder können z.B. auf "Artist in DB", "Artist aus Metainfos", "Suche in MB", "MultiDiskRelease" oder "Anderer Aritst fallengelassen werden. Es öffnet ein Dialog mit Vorschlägen. Auch Ordner oder zu Releasen zusammengefasste Dateien können fallengelassen werden. In einem zweiten Baum könnten die Dateien/Releases/Artists so angezeigt werden, wie sie in der DB wären.
+Tags und Collections sollten auch noch definiert werden können.
+Releases und Zuordnungen zur Artisten sollten wieder aufgelöst werden können.
+Rückgängig Funktion?
+Gleiches Interace zum Importieren von neuen Dateien und Bearbeiten von vorhandenen Dateien?
+
+Trennung des Interfaces? 1: Verknüpfung der Dateien mit Releases und Artisten. 2. Bearbeiten von Metadaten.
+Eher nein: Collections sollten in Interace 1 definiert werden, und bei den Metadaten bleibt dann eigentlich nur noch der Liedname übrig.
+!Achtung!: für Sampler wäre es eventuell wichtig, dass eine Datei in mehrere Releases kann.
+
+=== 3. Schreiben in DB ===
+Die Dateien werden mit den definierten Metadaten in die DB aufgenommen. Gleichzeitig wird in jedem Verzeichnis, das Audio-Dateien enthält, eine Textdatei abgelegt, das die zugehörigen Datenbank-IDs enthält. (siehe IndexFile)
+
+== Stati ==
+=== Verzeichnisse ===
+ * enthält Audio-Dateien: ja/nein
+ * enthält Audio-Dateien und Unterverzeichnis welches Audio-Dateien enthält
+ * alle enthaltenen Audio-Dateien haben MB-Infos
+ * ist in DB; ist ähnlich in DB
+ * ist in der DB, aber auf Platte unvollständig
+ * enthält unlesbare Dateien, enthält Dateien mit falscher Prüfsumme (DB)
+ * Release enthält widersprüchliche MB-Infos
+ * das gefundene Release befindet sich mit anderen Audio-Dateien bereits in der DB
+ * IndexFile einer fremden MucoDB gefunden (ist das ein Problem?)
+
+=== Dateien ===
+ * Audio-Datei: ja/nein
+ * Bereits in DB
+ * MB-Infos verfügbar
+ * in DB: ja/nein; ist ähnlich in DB
+ * Meta-Daten unlesbar
+ * Prüfsumme aus DB stimmt nicht
+ * die DB enthält bereits eine gleiche (MD5, MB-ID) Audio-Datei
+
+
+== IndexFile ==
+Das IndexFile dient zur Identifikation der Audio-Dateien in einem Verzeichnis, das vom Nutzer ohne Kenntnis von Muco umbenannt oder verschoben wurde. Das IndexFile wird beim Importvorgang erstellt und erhält Informationen, mit denen die MucoDB identifiziert werden kann und die Audio-Datei in der DB über die ID gefunden werden kann. 
+Das IndexFile wird beim Scannen eines Verzeichnisses erkannt. So können die Dateien mit den jeweiligen Einträgen in der DB in Verbindung gebracht werden und der Pfad der Datei kann in der Datenbank aktualisiert werden. Falls der Benutzer Dateien umbenannt hat, kann über die Prüfsumme gematched werden. Besser ist es natürlich, wenn der Benutzer die Dateien durch Muco verschieben lässt. Das IndexFile darf auf keinen Fall vom Benutzer verändert werden, da die Datenbank durch falsche IDs beschädigt werden kann.
+Das Schreiben von IndeFiles kann mit versteckter Option ausgeschaltet werden. Gibt es eine Exportfunktion, in der ohne IndexFiles geschrieben wird?
+Darf ein Verzeichnis in mehreren MucoDBs sein?
+
+
+
+== API für Batchaufgaben ==
+ * Import
+ * Export der Struktur / der Metadaten
+ * Export der Lieder in eigener Struktur
+ * Tagging
+ * Datei-Check
+
+
+= Fragen =
+ * Können auch zusätzliche Dateien (Cover-Bilder, ...) mit aufgenommen werden?
+ * Können Dateien völlig ohne Definition von Metadaten aufgenommen werden? Lassen sich die Metadaten hinterher genauso gut definieren?
+ 
+ * Was ist mit Samplern? Wie kann ich so ein Release abbilden und darstellen? Lohnt sich die Speicherplatzersparnis überhaupt?
+ * Ab wann soll ich Release-Informationen löschen?
+ * Was ist, wenn es mehrere Versionen von einem Release oder von einem Lied gibt? Ich sollte eine Testverzeichnisstruktur erstellen
+ 
+ 
+ 
+= Testfälle =
+Verzeichnisstruktur:
+ * zwei gleiche Lieder (eventuell mit und ohne unterschiedliche Bitrate)
+ * zwei gleiche Releases (eventuell mit und ohne unterschiedliche Bitrate)
+ * ein Verzeichnis mit vielen unterverzeichnisse, jedes unterverzeichnis enthält ein Release, manche davon sind multidiskreleases
+ * /bravo Hits/17/CD 1
+ * kaputte Audio-Datei
+ * unvollständiges release (lt. metadaten)
+ * mehrere artists/releases in einem verzeichnis, jeweils auch dasselbe Lied/Release mit unterschiedlichen Bitraten, ein MultiDiskRelease in einem verzeichnis
+ 
+
+ 
+Problematik:
+Jede Datei wird über eine SHA1-Summe eindeutig identifiziert. Wenn die eigenen Dateien mit den Dateien eines Remote-Hosts verglichen werden soll, müsste für die Summe jeder Datei auf dem Remote-Host geprüft werden, ob sich die Summe in der eigenen DB befindet. Ein Select auf eine bestimmte summe ist recht aufwendig, da die Summe jeweils Zeichen für Zeichen verglichen werden muss. Bei 10.000 eigenen Dateien und 10.000 Dateien auf dem Remote-Host sind 10.000 * 10.000 Prüfungen notwendig.
+
+Lösungsansatz:
+Um die Anzahl der Prüfungen zu verringern, sollen nicht nur einzelne Dateien, sondern auch Ordner eine Prüfsumme erhalten. die prüfsumme setzt sich aus den prüfsummen der importierten dateien zusammen, die er enthält. Somit können beim Remote-Vergleich ganze ordner verlgichen werden.
+
+wenn dateien mit einem anderen host verglichen werden, wird für jeden ordner geprüft, ob ein ordner mit derselben prüfsumme gefunden wurde. wenn ja, wird angenommen, dass der inhalt der beiden ordner derselbe ist (beim download muss das nochmal geprüft werden). wenn nein, wird der inhalt des ordners vergleichen (unterordner und dateien).
+
+wenn eine datei importiert/entfernt wird, müssen rekursiv die prüfsummen aller übergeordneten ordner aktualisiert werden. um die prüfsumme eines ordners zu prüfen, müssen rekursiv die prüfsummen aller untergeordneten ordner und dateien geprüft werden.
+
+
+
 ======================= Erledigt =============================
  * bug beim import
  * folder-methode im model auseinander ziehen
@@ -59,5 +178,3 @@ Für eine Fortschrittsanzeige ist notwenig:
 3) rekursives update von folder.is_ok nach unten und oben
 vielleicht wäre es sinnvoll, die vorgänge 2 und 3 in die Hasher-klasse auszulagern und für das checken und importieren zu verwenden. das entfernen von dateien könnte 3 gebrauchen.
 Ein import kann demnach erst beim hashen programmneustart-übergreifend pausiert werden. Für die fortsetzung eines imports nach programmneustart müssen alle folder/files unterhalb des import-roots neu erfasst werden.
-
-

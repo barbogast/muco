@@ -182,7 +182,7 @@ class Model(object):
         return fi
         
     
-    def get_folder_by_path(self, path, parent_fo=DB_Folder()):
+    def get_folder_by_path(self, path, parent_fo=DB_Folder(), is_mount_point=None):
         self.log('get_folder ' + path)
         if not os.path.isdir(path) or os.path.islink(path):
             self.log('Model.folder(): path %s: isdir(%s), islink(%s)' % (path, os.path.isdir(path) , os.path.islink(path)))
@@ -191,7 +191,9 @@ class Model(object):
         c = self.conn.cursor()
         path = os.path.normpath(path)
         
-        is_mount_point = os.path.ismount(path)
+        if is_mount_point is None:
+            is_mount_point = os.path.ismount(path)
+            
         if is_mount_point:
             where = "is_mount_point = 1 and full_path = ?"
             args = (path, )
@@ -228,14 +230,9 @@ class Model(object):
         return DB_Folder(**d)
         
     
-    def insert_folder(self, path, parent_fo=DB_Folder()):
-        """ 
-        Try to get the parent folder. If it is not in the DB, insert it by 
-        calling this method. After the parent folder was inserted (or selected), 
-        insert this folder with the received ID.
-        This way the folders will be recursivly selected from top to bottom 
-        until one is found or the root is reached.
-        Then the folders will be inserted from bottom to top.
+    def insert_folder(self, path, parent_fo, is_mount_point):
+        """
+        If is_mount_point is True, parent_fo must be None
         """
         self.log('Folder ' + path)
         if not os.path.isdir(path) or os.path.islink(path):
@@ -246,14 +243,10 @@ class Model(object):
         path = os.path.normpath(path)
         root, folder = os.path.split(path)
         
-        is_mount_point = os.path.ismount(path)
-        if parent_fo.is_none() and not is_mount_point:
-            parent_fo = self.get_folder_by_path(root)
-            if parent_fo.is_none():
-                parent_fo = self.insert_folder(root)
-            parent_folder_id = parent_fo.id_
-        else:
+        if is_mount_point:
             parent_folder_id = None
+        else:
+            parent_folder_id = parent_fo.id_
         
         self.log('insert ' + path)
         c.execute("""insert into folder 
@@ -262,18 +255,17 @@ class Model(object):
                     (folder, path, parent_folder_id, is_mount_point))
         
         fo = DB_Folder(id_=c.lastrowid,
-                         name=folder,
-                         full_path=path,
-                         parent_folder=parent_fo,
-                         parent_folder_id=parent_folder_id,
-                         is_mount_point=is_mount_point,
-                         hash_=None,
-                         is_ok=True)
+                       name=folder,
+                       full_path=path,
+                       parent_folder=parent_fo,
+                       parent_folder_id=parent_folder_id,
+                       is_mount_point=is_mount_point,
+                       hash_=None,
+                       is_ok=True)
         
-        if not parent_fo.is_none():
+        if parent_fo:
             parent_fo.child_folders[fo.id_] = fo
         return fo
-
     
     def delete_folder(self, fo):
         """ Will delete the files in this folder, then the foldern itself.
@@ -367,6 +359,23 @@ class Model(object):
         totalSize = list(self.conn.execute("select sum(filesize) from file"))[0][0]
         return {'files': noFiles, 'folders': noFolders, 'totalSize': totalSize}
     
+
+class IndexFile(object):
+    """
+    [files]
+    asdf.txt=22343
+    xxx.yyy=233
+    [folders]
+    asdfasdfasdf=2323    
+    """
+    
+    """
+    import files: create/update
+    import folder: create for folder, update for parentfolder
+    delete file: update
+    delete folder: delete for folder, update for parentfolder
+    check: should the index file be checked at all? optional? currently not            
+    """
     
 class Hasher(object):
     CHUNK_SIZE = 1024*1024
@@ -487,13 +496,27 @@ class ImportFilesAction(Action):
             raise Exception('File %s was none'%path)
         return fi
     
+    def import_parent_folder(self, path):
+        print 'import parent folder', path
+        root, folder = os.path.split(path)
+        if os.path.ismount(root):
+            fo = self.model.get_folder_by_path(root, is_mount_point=True)
+            if fo.is_none():
+                fo = self.model.insert_folder(root, None, True)
+            return fo
+        else:        
+            parent_fo = self.model.get_folder_by_path(root)
+            if parent_fo.is_none():
+                parent_fo = self.import_parent_folder(root)
+            fo = self.model.insert_folder(root, parent_fo, False)
+            return fo
+    
     def import_folder(self, path, parent_fo=DB_Folder(), startingFolder=None):
         yield(None, path)
-        fo = self.model.get_folder_by_path(path, parent_fo)
-        if fo.is_none():
-            fo = self.model.insert_folder(path, parent_fo)
-        if fo.is_none():
-            raise Exception('Import failed: %s (%s)' % (self.path, parent_fo))
+        if parent_fo.is_none():
+            parent_fo = self.import_parent_folder(path)
+        
+        fo = self.model.insert_folder(path, parent_fo, False)
         
         for el in os.listdir(path):
             el = os.path.join(path, el)
@@ -517,7 +540,8 @@ class ImportFilesAction(Action):
             folder_path = os.path.dirname(self.path)
             fo = self.model.get_folder_by_path(folder_path)
             if fo.is_none():
-                fo = self.model.insert_folder(folder_path)
+                parent_fo = self.import_parent_folder(folder_path)
+                fo = self.model.insert_folder(folder_path, parent_fo, False)
             fi = self.import_file(self.path, fo)
             h = Hasher(self.model, 1, fi.filesize, rehashFolders=True)
             for info in h.process_file(fi):
