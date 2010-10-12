@@ -71,7 +71,7 @@ class FSModel(QtGui.QFileSystemModel):
         path, isInDb = self._getPath(indexes)
         if isInDb or path is None:
             return        
-        action = ImportFilesAction(path)
+        action = ImportFilesAction(self.dbmodel, path)
         self.actionController.add_action(action)
         self.folderCache = {}
         self.fileCache = {}
@@ -81,7 +81,7 @@ class FSModel(QtGui.QFileSystemModel):
         path, isInDb = self._getPath(indexes)
         if not isInDb or path is None:
             return
-        action = DeleteFilesAction(path)
+        action = DeleteFilesAction(self.dbmodel, path)
         self.actionController.add_action(action)
         self.folderCache = {}
         self.fileCache = {}
@@ -91,7 +91,7 @@ class FSModel(QtGui.QFileSystemModel):
         path, isInDb = self._getPath(indexes)
         if not isInDb or path is None:
             return
-        action = CheckFilesAction(path)
+        action = CheckFilesAction(self.dbmodel, path)
         self.actionController.add_action(action)
         self.folderCache = {}
         self.fileCache = {}
@@ -112,7 +112,7 @@ class MainWindow(QtGui.QMainWindow):
         self.dbmodel.set_connection(get_connection())
         self.refresh_stats()
         
-        self.actionController = ActionController(self.ui.table_actions, self.ui.button_pause, self.ui.button_clear, self)
+        self.actionController = ActionController(self.ui, self)
         
         self.fsmodel = FSModel(self.actionController, self)
         self.fsmodel.set_dbmodel(self.dbmodel)

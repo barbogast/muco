@@ -1,4 +1,5 @@
 TODO:
+ * ich muss noch sicherstellen, dass nur eine action gleichzeitig laueft 
  * die IndexFiles sind wahrscheinlich nicht notwendig, da ich dateien problemlos ueber ihren hash identifizieren kann.
  * was mach ich mit datei links?
  * entfernen und prüfen sollte keine action in der liste anlegen, wenn das item nicht in der db war

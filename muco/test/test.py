@@ -3,20 +3,23 @@
 import unittest as ut
 import sqlite3
 import os
+import shutil
 
 import apsw
 
 
 from muco.model import Model
+from muco.model import ImportFilesAction, CheckFilesAction, DeleteFilesAction
 
 
 class SqliteForeignKeys(ut.TestCase):
-    TEST_DB_PATH = os.path.join(os.path.realpath('./testdata'), 'test.sqlite')
+    #TEST_DB_PATH = os.path.join(os.path.realpath('./testdata'), 'test.sqlite')
     
     def setUp(self):
         try: os.remove(self.TEST_DB_PATH) 
         except: pass
-        self.conn = apsw.Connection(self.TEST_DB_PATH)
+        #self.conn = apsw.Connection(self.TEST_DB_PATH)
+        self.conn = apsw.Connection(':memory:')
         self.conn.cursor().execute(open('../schema.sql').read())
         cur = self.conn.cursor()
         cur.execute("insert into folder (name) values ('folder1')")
@@ -26,7 +29,7 @@ class SqliteForeignKeys(ut.TestCase):
     def tearDown(self):
         #self.conn.commit()
         self.conn.close()
-        os.remove(self.TEST_DB_PATH)
+        #os.remove(self.TEST_DB_PATH)
         
     def test_select(self):
         cur = self.conn.cursor()
@@ -65,11 +68,11 @@ class TestFileCreator(object):
             raise ValueError('path doesnt start with testpath', path, self._testpath)
         if not os.path.exists(path):
             os.mkdir(path)
-            self._fullPaths.update(path)
+            self._fullPaths.add(path)
         else:
             print 'Folder exists', path
-        for name, content in self._files.iteritems():
-            if isinstance(v, basestring):
+        for name, content in fileDict.iteritems():
+            if isinstance(content, basestring):
                 self.createFile(os.path.join(path, name), content)
             elif type(content) == dict:
                 self.createFolder(os.path.join(path, name), content)
@@ -86,7 +89,7 @@ class TestFileCreator(object):
             return
         with open(path, 'w') as f:
             f.write(content)
-        self._fullPaths.update(path)
+        self._fullPaths.add(path)
             
     
     def editFile(self, path, mode, content):
@@ -127,6 +130,7 @@ class TestFileCreator(object):
         
         
     def removeAll(self):
+        #shutil.rmtree(self._testpath)
         for element in reversed(sorted(self._fullPaths)):
             if not os.path.exists(element):
                 continue
@@ -142,7 +146,15 @@ class TestFSCreator_Test(ut.TestCase):
     def setUp(self):
         pass
     
-    
+class ActionTester(object):
+    def __init__(self, action):
+        self.actionClass = actionClass
+        
+    def runAction(self, *args):
+        o = self.actionClass(*args)
+        for state, stats in o.run_action():
+            pass
+print open('../schema.sql').read()        
 class TestModel(ut.TestCase):
     files = {
         'file0_1.txt': 'testtext',
@@ -171,10 +183,54 @@ class TestModel(ut.TestCase):
         }
             
     }
+    TEST_DB_PATH = os.path.join(os.path.realpath('./testdata'), 'test.sqlite')
             
     def setUp(self):
-        pass
+        self.conn = sqlite3.connect(':memory:')
+        #self.conn = sqlite3.connect(self.TEST_DB_PATH)
+        self.conn.executescript(open('../schema.sql').read())
+        self.conn.commit()
+        
+        self.model = Model()
+        self.model.set_connection(self.conn)
+        path = '/tmp/test'
+        self.tf = TestFileCreator(path)
+        self.tf.createFolder(path, self.files)
+        
+    def test_insertFile(self):
+        a = ImportFilesAction(self.model, '/tmp/test/file0_1.txt')
+        for info in a.run_action():
+            pass
+        self.assertFalse(self.model.get_file_by_path('/tmp/test/file0_1.txt').is_none())
+        
+        
+    def test_insertFileFromDifferentFolders(self):
+        a = ImportFilesAction(self.model, '/tmp/test/file0_1.txt')
+        for info in a.run_action():
+            pass
+        self.assertFalse(self.model.get_file_by_path('/tmp/test/file0_1.txt').is_none())
+        
+        a = ImportFilesAction(self.model, '/tmp/test/file0_1.txt')
+        for info in a.run_action():
+            pass
+        self.assertFalse(self.model.get_file_by_path('/tmp/test/folder4/file4_1.txt').is_none())
+    
+        
+    def test_deleteFile(self):
+        a = ImportFilesAction(self.model, '/tmp/test/file0_1.txt')
+        for info in a.run_action():
+            pass
+        self.assertFalse(self.model.get_file_by_path('/tmp/test/file0_1.txt').is_none())
+        
+        a = DeleteFilesAction(self.model, '/tmp/test/file0_1.txt')
+        for info in a.run_action():
+            pass
+        self.assertTrue(self.model.get_file_by_path('/tmp/test/file0_1.txt').is_none())
+            
    
+    def tearDown(self):
+        self.tf.removeAll()
+        #os.remove(self.TEST_DB_PATH)
     #def
     
      # Dateien in eine neue DB einfügen

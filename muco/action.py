@@ -82,16 +82,16 @@ class ActionController(object):
     STATUS, NAME, PROGRESS, CURRENT = range(4)
     HEADERS = ('Status', 'Name', 'Progress', 'Current Item')
 
-    def __init__(self, tableWidget, pauseButton, clearButton, parent):
+    def __init__(self, ui, parent):
         self.parent = parent
-        self._tableWidget = tableWidget
+        self._tableWidget = ui.table_actions
 
         self._tableWidget.setColumnCount(len(self.HEADERS))
         self._tableWidget.setHorizontalHeaderLabels(self.HEADERS)
                 
         self._actionRunnerList = []
-        pauseButton.connect(pauseButton, SIGNAL('clicked()'), self.pause_action)
-        pauseButton.connect(clearButton, SIGNAL('clicked()'), self.clear_list)
+        ui.button_pause.connect(ui.button_pause, SIGNAL('clicked()'), self.pause_action)
+        ui.button_clear.connect(ui.button_clear, SIGNAL('clicked()'), self.clear_list)
          
         self._timer = QTimer()
         self._timer.connect(self._timer, SIGNAL('timeout()'), self.update_progress)
@@ -122,7 +122,10 @@ class ActionController(object):
         row = self._tableWidget.currentRow()
         if row is None:
             return
-        actionRunner = self._actionRunnerList[row]
+        try:
+            actionRunner = self._actionRunnerList[row]
+        except IndexError:
+            return
         state = actionRunner.get_state()
         if state == 'running':
             actionRunner.set_state('pause')

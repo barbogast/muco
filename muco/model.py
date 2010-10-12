@@ -468,7 +468,8 @@ class Hasher(object):
         
     
 class ImportFilesAction(Action):
-    def __init__(self, path):
+    def __init__(self, dbmodel, path):
+        self.model = dbmodel
         self.path = path
         self._totalSize = 0
         self._noFiles = 0
@@ -534,7 +535,7 @@ class ImportFilesAction(Action):
     
     def run_action(self):
         start = time.time()
-        self.model = Model(logger=printer).set_connection(get_connection())
+        #self.model = Model(logger=printer).set_connection(get_connection())
         if os.path.isfile(self.path):
             folder_path = os.path.dirname(self.path)
             fo = self.model.get_folder_by_path(folder_path)
@@ -559,7 +560,7 @@ class ImportFilesAction(Action):
                 yield info
             h.update_parent_folder_is_ok(fo)
             
-        self.model.commit_and_close()
+        self.model.commit()
         self._duration = time.time() - start
         s = '%s files total'%self._noFiles
         yield(s, unicode(self.get_stats()))
@@ -567,7 +568,8 @@ class ImportFilesAction(Action):
     
         
 class DeleteFilesAction(Action):
-    def __init__(self, path):
+    def __init__(self, dbmodel, path):
+        self.model = dbmodel
         self.path = path
         self._duration = 0
         
@@ -602,7 +604,7 @@ class DeleteFilesAction(Action):
     
     def run_action(self):
         start = time.time()
-        self.model = Model(logger=printer).set_connection(get_connection())
+        #self.model = Model(logger=printer).set_connection(get_connection())
         if os.path.isfile(self.path):
             fi = self.model.get_file_by_path(self.path)
             if fi.is_none():
@@ -618,13 +620,14 @@ class DeleteFilesAction(Action):
             if not fo.parent_folder_id is None:
                 parent_fo = self.model.get_folder_by_id(fo.parent_folder_id)
                 self.delete_parent_folder(parent_fo)
-        self.model.commit_and_close()
+        self.model.commit()
         self._duration = time.time() - start
         yield(None, unicode(self.get_stats()))
     
             
 class CheckFilesAction(Action):
-    def __init__(self, path):
+    def __init__(self, dbmodel, path):
+        self.model = dbmodel
         self.path = path
         self._totalSize = 0
         self._duration = 0
@@ -653,7 +656,7 @@ class CheckFilesAction(Action):
         
     def run_action(self):
         start = time.time()
-        self.model = Model(logger=printer).set_connection(get_connection())
+        #self.model = Model(logger=printer).set_connection(get_connection())
         if os.path.isfile(self.path):
             fi = self.model.get_file_by_path(self.path)
             if fi.is_none():
@@ -674,7 +677,7 @@ class CheckFilesAction(Action):
             for info in h.process_folder(fo):
                 yield info
             h.update_parent_folder_is_ok(fo)
-        self.model.commit_and_close()
+        self.model.commit()
         self._duration = time.time() - start
         s = '%s files total'%self._noFiles
         yield(s, unicode(self.get_stats()))
@@ -683,10 +686,7 @@ class CheckFilesAction(Action):
 dbPath = 'db01.sqlite'
 
 def get_connection(dbPath=dbPath):
-    return sqlite3.connect(dbPath)
-
-def get_connection(dbPath=dbPath):
-    return sqlite3.connect(dbPath)
+    return sqlite3.connect(dbPath, check_same_thread=False)
 
 def printer(msg): print msg
 
