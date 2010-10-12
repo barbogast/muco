@@ -51,13 +51,26 @@ class FSModel(QtGui.QFileSystemModel):
                 if not fi.is_none():
                     self.fileCache[path] = fi
     
-        
-      
-    def import_el(self, indexes):
+    def _getPath(self, indexes):
+        """ Returns the path and True if the item was found in the db"""
         if not indexes:
-            return
+            return None, False
         index = indexes[0]
         path = unicode(self.filePath(index))
+        if self.isDir(index):
+            fo = self.dbmodel.get_folder_by_path(path)
+            if not fo.is_none():
+                return path, True
+        else:
+            fi = self.dbmodel.get_file_by_path(path)
+            if not fi.is_none():
+                return path, True
+        return path, False
+      
+    def import_el(self, indexes):
+        path, isInDb = self._getPath(indexes)
+        if isInDb or path is None:
+            return        
         action = ImportFilesAction(path)
         self.actionController.add_action(action)
         self.folderCache = {}
@@ -65,10 +78,9 @@ class FSModel(QtGui.QFileSystemModel):
         self.emit(QtCore.SIGNAL('dataChanged()'))
         
     def delete_el(self, indexes):
-        if not indexes:
+        path, isInDb = self._getPath(indexes)
+        if not isInDb or path is None:
             return
-        index = indexes[0]
-        path = unicode(self.filePath(index))
         action = DeleteFilesAction(path)
         self.actionController.add_action(action)
         self.folderCache = {}
@@ -76,10 +88,9 @@ class FSModel(QtGui.QFileSystemModel):
         self.emit(QtCore.SIGNAL('dataChanged()'))
         
     def check_el(self, indexes):
-        if not indexes:
+        path, isInDb = self._getPath(indexes)
+        if not isInDb or path is None:
             return
-        index = indexes[0]
-        path = unicode(self.filePath(index))
         action = CheckFilesAction(path)
         self.actionController.add_action(action)
         self.folderCache = {}
@@ -101,7 +112,7 @@ class MainWindow(QtGui.QMainWindow):
         self.dbmodel.set_connection(get_connection())
         self.refresh_stats()
         
-        self.actionController = ActionController(self.ui.table_actions, self.ui.button_pause, self)
+        self.actionController = ActionController(self.ui.table_actions, self.ui.button_pause, self.ui.button_clear, self)
         
         self.fsmodel = FSModel(self.actionController, self)
         self.fsmodel.set_dbmodel(self.dbmodel)

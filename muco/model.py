@@ -497,7 +497,6 @@ class ImportFilesAction(Action):
         return fi
     
     def import_parent_folder(self, path):
-        print 'import parent folder', path
         root, folder = os.path.split(path)
         if os.path.ismount(root):
             fo = self.model.get_folder_by_path(root, is_mount_point=True)

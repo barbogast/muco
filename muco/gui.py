@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 
-# Form implementation generated from reading ui file '../ui/main.ui'
+# Form implementation generated from reading ui file 'ui/main.ui'
 #
-# Created: Wed Sep  1 21:03:13 2010
+# Created: Tue Oct 12 20:50:52 2010
 #      by: PyQt4 UI code generator 4.6
 #
 # WARNING! All changes made in this file will be lost!
@@ -75,6 +75,9 @@ class Ui_MainWindow(object):
         self.button_pause = QtGui.QPushButton(self.verticalLayoutWidget)
         self.button_pause.setObjectName("button_pause")
         self.horizontalLayout_2.addWidget(self.button_pause)
+        self.button_clear = QtGui.QPushButton(self.verticalLayoutWidget)
+        self.button_clear.setObjectName("button_clear")
+        self.horizontalLayout_2.addWidget(self.button_clear)
         spacerItem1 = QtGui.QSpacerItem(40, 20, QtGui.QSizePolicy.Expanding, QtGui.QSizePolicy.Minimum)
         self.horizontalLayout_2.addItem(spacerItem1)
         self.verticalLayout_2.addLayout(self.horizontalLayout_2)
@@ -96,4 +99,5 @@ class Ui_MainWindow(object):
         self.buttom_remove.setText(QtGui.QApplication.translate("MainWindow", "Entfernen", None, QtGui.QApplication.UnicodeUTF8))
         self.button_check.setText(QtGui.QApplication.translate("MainWindow", "Prüfen", None, QtGui.QApplication.UnicodeUTF8))
         self.button_pause.setText(QtGui.QApplication.translate("MainWindow", "Pause/Fortsetzen", None, QtGui.QApplication.UnicodeUTF8))
+        self.button_clear.setText(QtGui.QApplication.translate("MainWindow", "Beendete entfernen", None, QtGui.QApplication.UnicodeUTF8))
 
