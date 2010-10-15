@@ -702,7 +702,7 @@ def get_connection(dbPath=dbPath):
 
 def printer(msg): print msg
 
-if __name__ == '__main__':
+if __name__ == '__main__':  # pragma: no cover
     import time
     start = time.time()
     def printer(msg): print msg
