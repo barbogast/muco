@@ -82,7 +82,8 @@ class DB_Folder(DB_Object):
     
         if not self.is_none():
             if self.full_path and not self.name:
-                self.name = os.path.split(os.path.normpath(self.full_path))[1]
+                root, name = os.path.split(os.path.normpath(self.full_path))
+                self.name = name if name else root # os.path.split('/') == ('/', '') ==> fix this
                 
             self.is_ok = False if self.is_ok is None or self.is_ok == 0 else True
             self.is_mount_point = False if self.is_mount_point is None or self.is_mount_point == 0 else True
@@ -109,6 +110,9 @@ class Model(object):
     def set_connection(self, conn):
         self.conn = conn
         return self
+    
+    def get_connection(self):
+        return self.conn
       
     def commit(self):
         self.conn.commit()
@@ -124,7 +128,7 @@ class Model(object):
         if not path:
             path = 'schema.sql'
         sql = open(path).read()
-        self.conn.cursor().executescript(sql)
+        self.conn.executescript(sql)
               
     
     def get_file_by_path(self, path, fo=DB_Folder()):
@@ -152,7 +156,7 @@ class Model(object):
         return DB_File()
     
     
-    def insert_file(self, path, fo, newHashSum=None, filesize=None):
+    def insert_file(self, path, fo, filesize):
         self.log('insert_file: path=%s, folder_id=%s'%(path, fo))
         
         folder, filename = os.path.split(path)
@@ -165,12 +169,12 @@ class Model(object):
                 #return DB_File()
         
         c = self.conn.cursor()
-        c.execute("insert into file (name, folder_id, hash, filesize) values (?, ?, ?, ?)",
-                  (filename, fo.id_, newHashSum, filesize))
+        c.execute("insert into file (name, folder_id, filesize) values (?, ?, ?)",
+                  (filename, fo.id_, filesize))
         fi = DB_File(id_=c.lastrowid, 
                      folder=fo,
                      name=filename,
-                     hash_=newHashSum,
+                     hash_=None,
                      hash_is_wrong=False,
                      filesize=filesize)
         fo.child_files[fi.id_] = fi
@@ -238,6 +242,9 @@ class Model(object):
         c = self.conn.cursor()
         path = os.path.normpath(path)
         root, folder = os.path.split(path)
+        
+        if not folder:
+            folder = root # os.path.split('/') == ('/', '') ==> fix this
         
         if is_mount_point:
             parent_folder_id = None

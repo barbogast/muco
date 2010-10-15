@@ -54,12 +54,12 @@ create table file (
   folder_id        integer
     references folder(id),
   name             text,
-  hash             text,
+  hash             text default null,
   hash_is_wrong    integer default 0, --bool
-  filesize         integer,
-  filetype         text,
-  encoding         text,
-  bitrate          text
+  filesize         integer
+  --filetype         text, not yet supported
+  --encoding         text, should not be here
+  --bitrate          text  should not be here
 );
 
 create table file_mapping (
