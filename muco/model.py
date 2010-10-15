@@ -34,7 +34,7 @@ class DB_Object(object):
 
     def __str__(self):
         if self.is_none():
-            details = 'None'
+            details = '%s(None)'%self.__class__.__name__
         else:
             cols = ['%s=%s'%(a, getattr(self, a)) for a in sorted(self.ATTRIBUTES)]
             details = '%s %s [%s]'%(self.__class__.__name__, self.NAME, ', '.join(cols))
@@ -152,21 +152,17 @@ class Model(object):
         return DB_File()
     
     
-    def insert_file(self, path, fo=DB_Folder(), newHashSum=None, filesize=None):
+    def insert_file(self, path, fo, newHashSum=None, filesize=None):
         self.log('insert_file: path=%s, folder_id=%s'%(path, fo))
-        
-        if os.path.islink(path):
-            # Ingnore links
-            return DB_File()
         
         folder, filename = os.path.split(path)
                 
-        # select parent folder
+        ## select parent folder
         ## TODO: is this path ever used/tested???
-        if fo.is_none():
-            fo = self.get_folder_by_path(folder, False)
-            if fo.is_none():
-                return DB_File()
+        #if fo.is_none():
+            #fo = self.get_folder_by_path(folder)
+            #if fo.is_none():
+                #return DB_File()
         
         c = self.conn.cursor()
         c.execute("insert into file (name, folder_id, hash, filesize) values (?, ?, ?, ?)",
@@ -182,17 +178,17 @@ class Model(object):
         return fi
         
     
-    def get_folder_by_path(self, path, parent_fo=DB_Folder(), is_mount_point=None):
+    def get_folder_by_path(self, path, parent_fo=DB_Folder(), is_mount_point=False):
         self.log('get_folder ' + path)
-        if not os.path.isdir(path) or os.path.islink(path):
-            self.log('Model.folder(): path %s: isdir(%s), islink(%s)' % (path, os.path.isdir(path) , os.path.islink(path)))
-            return DB_Folder()
+        #if not os.path.isdir(path) or os.path.islink(path):
+            #self.log('Model.folder(): path %s: isdir(%s), islink(%s)' % (path, os.path.isdir(path) , os.path.islink(path)))
+            #return DB_Folder()
         
         c = self.conn.cursor()
         path = os.path.normpath(path)
         
-        if is_mount_point is None:
-            is_mount_point = os.path.ismount(path)
+        #if is_mount_point is None:
+            #is_mount_point = os.path.ismount(path)
             
         if is_mount_point:
             where = "is_mount_point = 1 and full_path = ?"
@@ -235,9 +231,9 @@ class Model(object):
         If is_mount_point is True, parent_fo must be None
         """
         self.log('Folder ' + path)
-        if not os.path.isdir(path) or os.path.islink(path):
-            self.log('Model.folder(): path %s: isdir(%s), islink(%s)' % (path, os.path.isdir(path) , os.path.islink(path)))
-            return DB_Folder()
+        #if not os.path.isdir(path) or os.path.islink(path):
+            #self.log('Model.folder(): path %s: isdir(%s), islink(%s)' % (path, os.path.isdir(path) , os.path.islink(path)))
+            #return DB_Folder()
         
         c = self.conn.cursor()
         path = os.path.normpath(path)
@@ -489,7 +485,9 @@ class ImportFilesAction(Action):
         fi = self.model.get_file_by_path(path, fo)
         if not fi.is_none():
             return
-
+        if os.path.islink(path):
+            return DB_File() #TODO: was hat das fuer auswirkungen?
+        
         fi = self.model.insert_file(path, fo=fo, filesize=os.path.getsize(path))
         self._totalSize += fi.filesize
         self._noFiles += 1
@@ -499,19 +497,24 @@ class ImportFilesAction(Action):
     
     def import_parent_folder(self, path):
         root, folder = os.path.split(path)
-        if os.path.ismount(root):
+        if os.path.islink(root):
+            raise ValueError('Its not allowed to import links (%s)'%path)
+        is_mount_point = os.path.ismount(root)
+        if is_mount_point:
             fo = self.model.get_folder_by_path(root, is_mount_point=True)
             if fo.is_none():
                 fo = self.model.insert_folder(root, None, True)
             return fo
         else:        
-            parent_fo = self.model.get_folder_by_path(root)
+            parent_fo = self.model.get_folder_by_path(root, is_mount_point=is_mount_point)
             if parent_fo.is_none():
                 parent_fo = self.import_parent_folder(root)
             fo = self.model.insert_folder(root, parent_fo, False)
             return fo
     
     def import_folder(self, path, parent_fo=DB_Folder(), startingFolder=None):
+        if os.path.islink(path):
+            raise ValueError('Its not allowed to import links (%s)'%path)
         yield(None, path)
         if parent_fo.is_none():
             parent_fo = self.import_parent_folder(path)
@@ -540,8 +543,10 @@ class ImportFilesAction(Action):
             folder_path = os.path.dirname(self.path)
             fo = self.model.get_folder_by_path(folder_path)
             if fo.is_none():
+                if os.path.islink(folder_path):
+                    raise ValueError('Its not allowed to import links (%s)'%path)
                 parent_fo = self.import_parent_folder(folder_path)
-                fo = self.model.insert_folder(folder_path, parent_fo, False)
+                fo = self.model.insert_folder(folder_path, parent_fo, os.path.ismount(folder_path))
             fi = self.import_file(self.path, fo)
             h = Hasher(self.model, 1, fi.filesize, rehashFolders=True)
             for info in h.process_file(fi):
