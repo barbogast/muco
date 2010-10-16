@@ -42,6 +42,12 @@ class DB_Object(object):
         
     def is_none(self):
         return self._is_none
+    
+    def set_to_none(self):
+        if not self._is_none:
+            self._is_none = True
+            for a in self.ATTRIBUTES:
+                delattr(self, a)
 
         
 class DB_File(DB_Object):
@@ -124,7 +130,7 @@ class Model(object):
     def rollback(self):
         self.conn.rollback()
         
-    def make_schema(self, path=None):
+    def make_schema(self, path=None): # pragma: no cover
         if not path:
             path = 'schema.sql'
         sql = open(path).read()
@@ -195,6 +201,9 @@ class Model(object):
             #is_mount_point = os.path.ismount(path)
             
         if is_mount_point:
+            if not parent_fo.is_none():
+                raise ValueError('Its not allowed to give a parent_fo and set ',
+                                 'is_mount_point to True')
             where = "is_mount_point = 1 and full_path = ?"
             args = (path, )
         else:
@@ -206,14 +215,13 @@ class Model(object):
                 where = "name = ? and parent_folder_id = ?"
                 args = (folder, parent_fo.id_)
             
-        stmt = "select id, hash, is_ok, parent_folder_id from folder where " + where
+        stmt = "select id, hash, is_ok, parent_folder_id, is_mount_point from folder where " + where
         res = list(self.conn.cursor().execute(stmt, args))
         if not res:
             return DB_Folder()
-        d = dict(zip(['id_', 'hash_', 'is_ok', 'parent_folder_id'], res[0]))
+        d = dict(zip(['id_', 'hash_', 'is_ok', 'parent_folder_id', 'is_mount_point'], res[0]))
         d.update(name='', 
-                 full_path=path, 
-                 is_mount_point=is_mount_point,
+                 full_path=path,
                  parent_folder=parent_fo)
         fo = DB_Folder(**d)
         if not parent_fo.is_none():
@@ -225,6 +233,8 @@ class Model(object):
         res = list(self.conn.cursor().execute(""" 
             select id, name, full_path, is_mount_point, hash, is_ok, parent_folder_id from folder
             where id = ?""", (folder_id, )))
+        if not res:
+            return DB_Folder()
         d = dict(zip(('id_', 'name', 'full_path', 'is_mount_point', 'hash_', 'is_ok', 'parent_folder_id'), res[0]))
         d.update(parent_folder=DB_Folder())
         return DB_Folder(**d)
@@ -273,16 +283,21 @@ class Model(object):
     def delete_folder(self, fo):
         """ Will delete the files in this folder, then the foldern itself.
         Attention: Make sure, the given folder doesnt have any subfolders!"""
+        assert not fo.child_folders, 'Folder must be empty'
         c = self.conn.cursor()
         c.execute("delete from file where folder_id = ?", (fo.id_, ))
         c.execute("delete from folder where id = ?", (fo.id_, ))
         fo.child_files.clear()
         fo.child_folders.clear()
+        fo.set_to_none()
         
     def delete_file(self, fi):
         c = self.conn.cursor()
         c.execute("delete from file where folder_id = ? and id = ?", (fi.folder.id_, fi.id_))
-        del(fi.folder.child_files[fi.id_])
+        try:
+            del(fi.folder.child_files[fi.id_])
+        except AttributeError, KeyError:
+            pass
         
         
     def fill_child_folders(self, parent_fo):

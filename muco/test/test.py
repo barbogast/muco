@@ -209,6 +209,10 @@ class TestModel(ut.TestCase):
     def test_insertFolderFailNotMountWithoutParent(self):
         self.failUnlessRaises(Exception, self.model.insert_folder, '/', None, False)
         
+    def test_insertFolderFailNotMountWithoutParent2(self):
+        fo1 = self.model.insert_folder('/', None, True)
+        self.failUnlessRaises(Exception, self.model.insert_folder, '/aaa/bbb', None, False)
+        
     def test_insertFolderFailMountWithParent(self):
         class Mock(object): id_=5
         self.failUnlessRaises(Exception, self.model.insert_folder, '/', Mock(), True)
@@ -217,7 +221,97 @@ class TestModel(ut.TestCase):
         self.model.insert_folder('/aaa', None, True)
         self.failUnlessRaises(Exception, self.model.insert_folder, '/aaa', None, True)
         
-###################### Model.insert_file() ###############################    
+    ###################### Model.get_folder_by_path() ###############################
+    def test_getFolderByPath_withParent(self): 
+        fo1 = self.model.insert_folder('/', None, True)
+        self.model.insert_folder('/aaa', fo1, False)
+        fo2 = self.model.get_folder_by_path('/aaa', fo1, False)
+        self.assertFalse(fo2.is_none())
+        self.assertEqual(fo2.parent_folder, fo1)
+        self.assertEqual(fo2.parent_folder_id, fo1.id_)
+        self.assertEqual(fo2.hash_, None)
+        self.assertEqual(fo2.is_ok, True)
+        self.assertEqual(fo2.name, 'aaa')
+        self.assertEqual(fo2.full_path, '/aaa')
+        self.assertEqual(fo2.is_mount_point, False)
+        self.assertEqual(fo1.child_folders[fo2.id_], fo2)
+        
+    def test_getFolderByPath_withoutParent(self):
+        fo1 = self.model.insert_folder('/', None, True)
+        self.model.insert_folder('/aaa', fo1, False)
+        fo2 = self.model.get_folder_by_path('/aaa', is_mount_point=False)
+        self.assertFalse(fo2.is_none())
+        #self.assertEqual(fo2.parent_folder, fo1)
+        ##Attention: should a global folder cache be implemented?
+        self.assertEqual(fo2.parent_folder_id, fo1.id_)
+        self.assertEqual(fo2.hash_, None)
+        self.assertEqual(fo2.is_ok, True)
+        self.assertEqual(fo2.name, 'aaa')
+        self.assertEqual(fo2.full_path, '/aaa')
+        self.assertEqual(fo2.is_mount_point, False)
+    
+    def test_getFolderByPath_isMount(self):
+        self.model.insert_folder('/', None, True)
+        fo1 = self.model.get_folder_by_path('/', is_mount_point=True)
+        self.assertFalse(fo1.is_none())
+        self.assertTrue(fo1.parent_folder.is_none())
+        self.assertEqual(fo1.parent_folder_id, None)
+        self.assertEqual(fo1.hash_, None)
+        self.assertEqual(fo1.is_ok, True)
+        self.assertEqual(fo1.name, '/')
+        self.assertEqual(fo1.full_path, '/')
+        self.assertEqual(fo1.is_mount_point, True)
+        
+    def test_getFolderByPath_isMount_noInfo(self):
+        self.model.insert_folder('/', None, True)
+        fo1 = self.model.get_folder_by_path('/')
+        self.assertFalse(fo1.is_none())
+        self.assertTrue(fo1.parent_folder.is_none())
+        self.assertEqual(fo1.parent_folder_id, None)
+        self.assertEqual(fo1.hash_, None)
+        self.assertEqual(fo1.is_ok, True)
+        self.assertEqual(fo1.name, '/')
+        self.assertEqual(fo1.full_path, '/')
+        self.assertEqual(fo1.is_mount_point, True)
+        
+    def test_getFolderByPath_fail_isMount_withParent(self):
+        fo1 = self.model.insert_folder('/', None, True)
+        fo2 = self.model.insert_folder('/aaa', fo1, True)
+        self.failUnlessRaises(Exception, self.model.get_folder_by_path, '/aaa', fo2, True)
+        
+    def test_getFolderByPath_fail_existsNot(self):
+        fo1 = self.model.get_folder_by_path('/')
+        self.assertTrue(fo1.is_none())
+        
+    def test_getFolderByPath_fail_withWrongParent(self):
+        fo1 = self.model.insert_folder('/', None, True)
+        fo2 = self.model.insert_folder('/aaa', fo1, False)
+        fo3 = self.model.insert_folder('/aaa/bbb', fo2, False)
+        fo4 = self.model.get_folder_by_path('/aaa/bbb', fo1)
+        self.assertTrue(fo4.is_none())
+    
+    
+    ###################### Model.get_folder_by_id() ############################
+    def test_getFolderById(self):
+        fo1 = self.model.insert_folder('/', None, True)
+        fo2 = self.model.insert_folder('/aaa', fo1, False)
+        fo3 = self.model.insert_folder('/aaa/bbb', fo2, False)
+        fo4 = self.model.get_folder_by_id(fo3.id_)
+        self.assertFalse(fo4.is_none())
+        self.assertTrue(fo4.parent_folder.is_none())
+        self.assertEqual(fo4.parent_folder_id, fo2.id_)
+        self.assertEqual(fo4.hash_, None)
+        self.assertEqual(fo4.is_ok, True)
+        self.assertEqual(fo4.name, 'bbb')
+        self.assertEqual(fo4.full_path, '/aaa/bbb')
+        self.assertEqual(fo4.is_mount_point, False)
+        
+    def test_getFolderById_fail_folderIsMissing(self):
+        fo1 = self.model.insert_folder('/', None, True)
+        fo2 = self.model.insert_folder('/aaa', fo1, False)
+        fo3 = self.model.get_folder_by_id(234234)
+        
+    ###################### Model.insert_file() ###############################    
     def test_insertFile(self):
         fo1 = self.model.insert_folder('/', None, True)
         fo2 = self.model.insert_folder('/bbb', fo1, False)       
@@ -249,7 +343,7 @@ class TestModel(ut.TestCase):
         res = self.model.get_connection().execute(stmt, (fi.id_,))
         self.assertEqual(list(res)[0], (fo1.id_, 'ccc.txt', None, 0, 1234))
         
-###################### Model.insert_file_by_path() ###############################    
+    ###################### Model.insert_file_by_path() ###############################    
     def test_getFileByPathInRootWithFolder(self):
         fo1 = self.model.insert_folder('/', None, True)
         self.model.insert_file('/ccc.txt', fo1, 1234)
@@ -322,7 +416,62 @@ class TestModel(ut.TestCase):
             def is_none(self):return False
         fi = self.model.get_file_by_path('/bbb/ccc.txt', Mock())
         self.assertTrue(fi.is_none())
+    
+    ###################### Model.delete_folder() ###############################
+    def test_delete_folder(self):
+        fo1 = self.model.insert_folder('/', None, True)
+        fo2a = self.model.insert_folder('/aaa', fo1, False)
+        self.model.insert_file('/aaa/fff1.txt', fo2a, 100)
+        self.model.insert_file('/aaa/fff2.txt', fo2a, 200)
         
+        fo2b = self.model.insert_folder('/bbb', fo1, False)
+        self.model.insert_folder('/bbb/ccc1', fo2b, False)
+        self.model.insert_folder('/bbb/ccc2', fo2b, False)
+        self.model.insert_file('/bbb/fff1.txt', fo2b, 100)
+        self.model.insert_file('/bbb/fff2.txt', fo2b, 200)
+        
+        self.model.delete_folder(fo2a)
+        self.assertTrue(self.model.get_folder_by_path('/aaa').is_none())
+        self.assertTrue(self.model.get_file_by_path('/aaa/fff1.txt').is_none())
+        self.assertTrue(self.model.get_file_by_path('/aaa/fff2.txt').is_none())
+        
+        self.assertFalse(self.model.get_folder_by_path('/bbb/ccc1').is_none())
+        self.assertFalse(self.model.get_folder_by_path('/bbb/ccc2').is_none())
+        self.assertFalse(self.model.get_file_by_path('/bbb/fff1.txt').is_none())
+        self.assertFalse(self.model.get_file_by_path('/bbb/fff2.txt').is_none())
+        
+    def test_delete_folder_fail_existsNot(self):
+        class Mock(): 
+            id_=5
+            child_folders = {}
+            child_files = {}
+            def set_to_none(self): pass
+        self.model.delete_folder(Mock())
+    
+    def test_delete_folder_fail_hasChildFolders(self):
+        fo1 = self.model.insert_folder('/', None, True)
+        fo2 = self.model.insert_folder('/aaa', fo1, False)
+        self.failUnlessRaises(Exception, self.model.delete_folder, fo1)
+        
+    ###################### Model.delete_file() #################################
+    def test_delete_file(self):
+        fo1 = self.model.insert_folder('/', None, True)
+        fo2 = self.model.insert_folder('/aaa', fo1, False)
+        fi1 = self.model.insert_file('/aaa/fff1.txt', fo2, 100)
+        fi2 = self.model.insert_file('/aaa/fff2.txt', fo2, 200)
+        self.assertTrue(len(fo2.child_files)==2)
+        self.model.delete_file(fi1)
+        self.assertTrue(self.model.get_file_by_path('/aaa/fff1.txt').is_none())
+        self.assertFalse(self.model.get_file_by_path('/aaa/fff2.txt').is_none())
+        self.assertTrue(len(fo2.child_files)==1 and fi2.id_ in fo2.child_files)
+        
+    ###################### Model.fill_child_folders() ##########################
+    ###################### Model.fill_child_files() ############################
+    ###################### Model.set_file_hash_is_wrong() ######################
+    ###################### Model.set_file_hash() ###############################
+    ###################### Model.set_folder_is_ok() ############################
+    ###################### Model.set_folder_hash() #############################
+
     
     
 def it(o):
