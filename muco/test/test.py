@@ -465,12 +465,75 @@ class TestModel(ut.TestCase):
         self.assertFalse(self.model.get_file_by_path('/aaa/fff2.txt').is_none())
         self.assertTrue(len(fo2.child_files)==1 and fi2.id_ in fo2.child_files)
         
-    ###################### Model.fill_child_folders() ##########################
-    ###################### Model.fill_child_files() ############################
+    ########### Model.fill_child_folders() Model.fill_child_files()#############
+    def test_fillChilds(self):
+        fo1 = self.model.insert_folder('/', None, True)
+        fo2a = self.model.insert_folder('/aaa', fo1, False)
+        fo2b = self.model.insert_folder('/bbb', fo1, False)
+        fi2a = self.model.insert_file('/aaa.txt', fo1, 1234)
+        fi2b = self.model.insert_file('/bbb.txt', fo1, 1234)
+        self.assertEqual(sorted(fo1.child_folders.values()),
+                         sorted((fo2a, fo2b)))
+        self.assertEqual(sorted(fo1.child_files.values()),
+                         sorted((fi2a, fi2b)))
+        
+        fox = self.model.get_folder_by_path('/')
+        self.model.fill_child_folders(fox)
+        self.model.fill_child_files(fox)
+        self.assertEqual(sorted((fo.name for fo in fox.child_folders.values())),
+                         sorted(('aaa', 'bbb')))
+        self.assertEqual(sorted((fi.name for fi in fox.child_files.values())),
+                         sorted(('aaa.txt', 'bbb.txt')))
+        
     ###################### Model.set_file_hash_is_wrong() ######################
+    def test_setFielHashIsWrong(self):
+        fo1 = self.model.insert_folder('/', None, True)
+        fi2a = self.model.insert_file('/aaa.txt', fo1, 1234)
+        fi2b = self.model.insert_file('/bbb.txt', fo1, 1234)
+        self.model.set_file_hash_is_wrong(fi2a, True)
+        self.model.set_file_hash_is_wrong(fi2b, False)
+        self.assertTrue(fi2a.hash_is_wrong)
+        self.assertFalse(fi2b.hash_is_wrong)
+        stmt = "select hash_is_wrong from file where id = ?"
+        res = self.model.get_connection().execute(stmt, (fi2a.id_,))
+        self.assertEqual(list(res)[0], (1,))
+        res = self.model.get_connection().execute(stmt, (fi2b.id_,))
+        self.assertEqual(list(res)[0], (0,))
+        
+        
     ###################### Model.set_file_hash() ###############################
-    ###################### Model.set_folder_is_ok() ############################
-    ###################### Model.set_folder_hash() #############################
+    def test_setFileHash(self):
+        fo1 = self.model.insert_folder('/', None, True)
+        fi2a = self.model.insert_file('/aaa.txt', fo1, 1234)
+        fi2b = self.model.insert_file('/bbb.txt', fo1, 1234)
+        self.model.set_file_hash(fi2a, 'xxx')
+        self.model.set_file_hash(fi2b, 'yyy')
+        self.assertEqual(fi2a.hash_, 'xxx')
+        self.assertEqual(fi2b.hash_, 'yyy')
+        stmt = "select hash from file where id = ?"
+        res = self.model.get_connection().execute(stmt, (fi2a.id_,))
+        self.assertEqual(list(res)[0], ('xxx',))
+        res = self.model.get_connection().execute(stmt, (fi2b.id_,))
+        self.assertEqual(list(res)[0], ('yyy',))
+        
+    ############# Model.set_folder_hash() Model.set_folder_is_ok() #############
+    def test_setFolderIsOk(self):
+        fo1 = self.model.insert_folder('/', None, True)
+        changed = self.model.set_folder_hash(fo1, 'xxx')
+        self.assertTrue(changed)
+        changed = self.model.set_folder_hash(fo1, 'xxx')
+        self.assertFalse(changed)
+        changed = self.model.set_folder_is_ok(fo1, False)
+        self.assertTrue(changed)
+        self.assertFalse(fo1.is_ok)
+        changed = self.model.set_folder_is_ok(fo1, False)
+        self.assertFalse(changed)
+        
+        stmt = "select is_ok, hash from folder where id = ?"
+        res = self.model.get_connection().execute(stmt, (fo1.id_,))
+        self.assertEqual(list(res)[0], (0, None))
+        
+    ######################  #############################
 
     
     
