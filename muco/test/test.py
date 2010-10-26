@@ -542,28 +542,28 @@ def it(o):
         
 class TestFSActions(ut.TestCase):
     files = {
-        'file0_1.txt': 'testtext',
-        'file0_2.txt': 'testtext',
-        'file0_3.txt': 'testtext',
+        'file0_1.txt': 'testtextfile0_1',
+        'file0_2.txt': 'testtextfile0_2',
+        'file0_3.txt': 'testtextfile0_3',
         'folder1': {
-            'file1_1.txt': 'testtext',
-            'file1_2.txt': 'testtext',
-            'file1_3.txt': 'testtext',
+            'file1_1.txt': 'testtextfile1_1',
+            'file1_2.txt': 'testtextfile1_2',
+            'file1_3.txt': 'testtextfile1_3',
         },
         'folder2': {
-            'file2_1.txt': 'testtext',
-            'file2_2.txt': 'testtext',
-            'file2_3.txt': 'testtext',
+            'file2_1.txt': 'testtextfile2_1',
+            'file2_2.txt': 'testtextfile2_2',
+            'file2_3.txt': 'testtextfile2_3',
         },
         'folder3': {},
         'folder4': {
-            'file4_1.txt': 'testtext',
-            'file4_2.txt': 'testtext',
-            'file4_3.txt': 'testtext',
+            'file4_1.txt': 'testtextfile4_1',
+            'file4_2.txt': 'testtextfile4_2',
+            'file4_3.txt': 'testtextfile4_3',
             'folder4_4': {
-                'file4_4_1.txt': 'testtext',
-                'file4_4_2.txt': 'testtext',
-                'file4_4_3.txt': 'testtext',
+                'file4_4_1.txt': 'testtextfile4_4_1',
+                'file4_4_2.txt': 'testtextfile4_4_2',
+                'file4_4_3.txt': 'testtextfile4_4_3',
             }
         }
             
@@ -578,12 +578,16 @@ class TestFSActions(ut.TestCase):
         self.tf = TestFileCreator('/tmp/test')
         self.tf.createFolder('/tmp/test', self.files)
         
-    def test_insertFile(self):
+    def tearDown(self):
+        self.tf.removeAll()
+    
+    #########################ImportFilesAction files############################
+    def test_importFile(self):
         it(ImportFilesAction(self.model, '/tmp/test/file0_1.txt'))
         self.assertFalse(self.model.get_file_by_path('/tmp/test/file0_1.txt').is_none())
         
         
-    def test_insertFile_delete_reinsert(self):
+    def test_importFile_delete_reinsert(self):
         f = '/tmp/test/file0_1.txt'
         it(ImportFilesAction(self.model, f))
         self.assertFalse(self.model.get_file_by_path(f).is_none())
@@ -592,14 +596,14 @@ class TestFSActions(ut.TestCase):
         it(ImportFilesAction(self.model, f))
         self.assertFalse(self.model.get_file_by_path(f).is_none())
         
-    def test_insertFileFromDifferentFolders(self):
+    def test_importFileFromDifferentFolders(self):
         it(ImportFilesAction(self.model, '/tmp/test/file0_1.txt'))
         self.assertFalse(self.model.get_file_by_path('/tmp/test/file0_1.txt').is_none())
         
         it(ImportFilesAction(self.model, '/tmp/test/folder4/file4_1.txt'))
         self.assertFalse(self.model.get_file_by_path('/tmp/test/folder4/file4_1.txt').is_none())
         
-    def test_insertMultipleFiles(self):
+    def test_importMultipleFiles(self):
         f1 = '/tmp/test/file0_1.txt'
         f2 = '/tmp/test/file0_2.txt'
         f3 = '/tmp/test/file0_3.txt'
@@ -612,13 +616,70 @@ class TestFSActions(ut.TestCase):
         self.assertTrue(self.model.get_file_by_path(f2).name == 'file0_2.txt')
         self.assertTrue(self.model.get_file_by_path(f3).name == 'file0_3.txt')
         self.assertTrue(self.model.get_file_by_path(f4).name == 'file1_1.txt')
-        #print self.model.get_file_by_path(f1).folder, self.model.get_file_by_path(f2).folder, self.model.get_file_by_path(f3).folder
-        self.assertTrue(self.model.get_file_by_path(f1).folder == self.model.get_file_by_path(f2).folder)
-        self.assertTrue(self.model.get_file_by_path(f2).folder == self.model.get_file_by_path(f3.folder))
-        self.assertTrue(self.model.get_file_by_path(f1).folder != self.model.get_file_by_path(f4.folder))
-    ############################################################################    
-    #def test_insertFolder(self):
+        self.assertTrue(self.model.get_file_by_path(f1).folder.id_ == self.model.get_file_by_path(f2).folder.id_)
+        self.assertTrue(self.model.get_file_by_path(f2).folder.id_ == self.model.get_file_by_path(f3).folder.id_)
+        self.assertTrue(self.model.get_file_by_path(f1).folder.id_ != self.model.get_file_by_path(f4).folder.id_)
         
+    def test_importFiles_Hash(self):
+        filepath = '/tmp/test/file0_1.txt'
+        it(ImportFilesAction(self.model, filepath))
+        hs = hashlib.sha1()
+        f = open(filepath)
+        hs.update(f.read())
+        f.close()
+        hs = hs.hexdigest()
+        self.assertEqual(self.model.get_file_by_path(filepath).hash_, hs)
+        
+    ###########################ImportFilesAction folders########################    
+    def test_importFolder_simple(self):
+        path = '/tmp/test/folder1'
+        it(ImportFilesAction(self.model, path))
+        
+        fo = self.model.get_folder_by_path(path)
+        self.assertFalse(fo.is_none())
+        self.model.fill_child_files(fo)
+        hs = hashlib.sha1()
+        childNames = []
+        for child_id, child_fi in fo.child_files.iteritems():
+            self.assertEqual(child_fi.id_, child_id)
+            childNames.append(child_fi.name)
+            hs.update(child_fi.hash_)
+        self.assertEqual(hs.hexdigest(), fo.hash_)
+        self.assertEqual(sorted(childNames), sorted(('file1_1.txt', 'file1_2.txt', 'file1_3.txt')))
+        
+        
+    def test_importFolder_recursive(self):
+        path = '/tmp/test/folder4'
+        it(ImportFilesAction(self.model, path))
+        fo1 = self.model.get_folder_by_path(path)
+        self.model.fill_child_files(fo1)
+        self.model.fill_child_folders(fo1)
+        
+        hs1 = hashlib.sha1()
+        childFileNames1 = []
+        for child_id, child_fi in fo1.child_files.iteritems():
+            self.assertEqual(child_fi.id_, child_id)
+            childFileNames1.append(child_fi.name)
+            hs1.update(child_fi.hash_)
+        self.assertEqual(sorted(childFileNames1), sorted(('file4_1.txt', 'file4_2.txt', 'file4_3.txt')))
+        
+        self.assertEqual(fo1.child_folders.values()[0].full_path, '/tmp/test/folder4/folder4_4')
+        fo2 = self.model.get_folder_by_path('/tmp/test/folder4/folder4_4')
+        self.assertEqual(fo1.child_folders.values()[0].id_, fo2.id_)
+        
+        self.model.fill_child_files(fo2)
+        hs2 = hashlib.sha1()
+        childFileNames2 = []
+        for child_id, child_fi in fo2.child_files.iteritems():
+            self.assertEqual(child_fi.id_, child_id)
+            childFileNames2.append(child_fi.name)
+            hs2.update(child_fi.hash_)
+        self.assertEqual(sorted(childFileNames2), sorted(('file4_4_1.txt', 'file4_4_2.txt', 'file4_4_3.txt')))
+        print hs1.hexdigest(), fo2.hash_
+        self.assertEqual(hs2.hexdigest(), fo2.hash_)
+        
+        hs1.update(fo2.hash_)
+        self.assertEqual(hs1.hexdigest(), fo1.hash_)
         
         
     ############################################################################

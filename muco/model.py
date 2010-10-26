@@ -531,7 +531,7 @@ class ImportFilesAction(Action):
             parent_fo = self.model.get_folder_by_path(root, is_mount_point=is_mount_point)
             if parent_fo.is_none():
                 parent_fo = self.import_parent_folder(root)
-            fo = self.model.insert_folder(root, parent_fo, False)
+            fo = self.model.insert_folder(path, parent_fo, False)
             return fo
     
     def import_folder(self, path, parent_fo=DB_Folder(), startingFolder=None):
@@ -539,7 +539,8 @@ class ImportFilesAction(Action):
             raise ValueError('Its not allowed to import links (%s)'%path)
         yield(None, path)
         if parent_fo.is_none():
-            parent_fo = self.import_parent_folder(path)
+            root = os.path.dirname(os.path.normpath(path))
+            parent_fo = self.import_parent_folder(root)
         
         fo = self.model.insert_folder(path, parent_fo, False)
         
@@ -560,15 +561,13 @@ class ImportFilesAction(Action):
     
     def run_action(self):
         start = time.time()
-        #self.model = Model(logger=printer).set_connection(get_connection())
         if os.path.isfile(self.path):
             folder_path = os.path.dirname(self.path)
             fo = self.model.get_folder_by_path(folder_path)
             if fo.is_none():
                 if os.path.islink(folder_path):
                     raise ValueError('Its not allowed to import links (%s)'%path)
-                parent_fo = self.import_parent_folder(folder_path)
-                fo = self.model.insert_folder(folder_path, parent_fo, os.path.ismount(folder_path))
+                fo = self.import_parent_folder(folder_path)
             fi = self.import_file(self.path, fo)
             h = Hasher(self.model, 1, fi.filesize, rehashFolders=True)
             for info in h.process_file(fi):
@@ -612,10 +611,11 @@ class DeleteFilesAction(Action):
         self.model.fill_child_folders(fo)
         self.model.fill_child_files(fo)
         if not fo.child_folders and not fo.child_files:
-            self.model.delete_folder(fo)
             if not fo.is_mount_point:
                 parent_fo = self.model.get_folder_by_id(fo.parent_folder_id)
                 self.delete_parent_folder(parent_fo)
+            self.model.delete_folder(fo)
+            
         else:
             h = Hasher(self.model, 1, 0, rehashFolders=True)
             h.hash_folder(fo)
@@ -631,7 +631,6 @@ class DeleteFilesAction(Action):
     
     def run_action(self):
         start = time.time()
-        #self.model = Model(logger=printer).set_connection(get_connection())
         if os.path.isfile(self.path):
             fi = self.model.get_file_by_path(self.path)
             if fi.is_none():
@@ -683,7 +682,6 @@ class CheckFilesAction(Action):
         
     def run_action(self):
         start = time.time()
-        #self.model = Model(logger=printer).set_connection(get_connection())
         if os.path.isfile(self.path):
             fi = self.model.get_file_by_path(self.path)
             if fi.is_none():
