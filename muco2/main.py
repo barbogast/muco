@@ -73,25 +73,23 @@ def add_folder(path, hash_file_name):
     for element in os.listdir(path):
         element_path = os.path.join(path, element)
         if os.path.isdir(element_path):
-            hash_sum = process_folder(element_path, hash_file_name)
+            hash_sum = add_folder(element_path, hash_file_name)
         else:
             hash_sum = hash_file(element_path)
 
-        if hash_sum is not None:
-            hf.add(element, hash_sum)
+        hf.add(element, hash_sum)
     
-    if hf:
-        return hash_file(hash_file_path)
-    else:
-        return None # no files in folder => no hashes
+    # Touch file if its still not created
+    open(hash_file_path, 'a').close()
+        
+    return hash_file(hash_file_path)
                                   
     
 
 def check_folder(path, hash_file_name):
     hash_file_path = os.path.join(path, hash_file_name)
     hf = DictFile(hash_file_path)
-    
-    contains_elements = False
+
     for element in os.listdir(path):
         element_path = os.path.join(path, element)
         if element == hash_file_name:
@@ -100,22 +98,17 @@ def check_folder(path, hash_file_name):
             hash_sum = check_folder(element_path, hash_file_name)
         else:
             hash_sum = hash_file(element_path)
-        
-        if hash_sum is not None:
-            contains_elements = True
-            if element not in hf:
-                print 'Hash sum for %s [%s] not found in %s' % (element, path, hash_file_path)
-            elif hf[element] != hash_sum:
-                print 'Hash sum for %s differs' % (element_path, )
+
+        if element not in hf:
+            print 'Hash sum for %s [%s] not found in %s' % (element, path, hash_file_path)
+        elif hf[element] != hash_sum:
+            print 'Hash sum for %s differs' % (element_path, )
     
-    if contains_elements:
-        if not os.path.isfile(hash_file_path):
-            print 'Hash file %s not found' % hash_file_path
-            return None
-        return hash_file(hash_file_path)
-    else:
-        return None
+    return hash_file(hash_file_path)
+
             
-            
-#process_folder('/home/ben/tmp/hnodeclient/h-client/tests_hclient', 'hash_file.txt')
-check_folder('/home/ben/tmp/hnodeclient/h-client/tests_hclient', 'hash_file.txt')
+
+hash_file_name = '_hash_file02.txt'
+folder = '/home/ben/muell/RoyalEnvoyIICE/Base'    
+#add_folder(folder, hash_file_name)
+check_folder(folder, hash_file_name)
