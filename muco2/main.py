@@ -112,3 +112,44 @@ hash_file_name = '_hash_file02.txt'
 folder = '/home/ben/muell/RoyalEnvoyIICE/Base'    
 #add_folder(folder, hash_file_name)
 check_folder(folder, hash_file_name)
+
+
+
+
+
+
+
+
+
+
+
+def add_folder_db(path, parent_folder_id=None):
+    conn.cursor().execute('insert into folder (parent_id, path) values (?, ?)', (parent_folder_id, path))
+    folder_id = conn.last_row_id
+    
+    for element in os.listdir(path):
+        element_path = os.path.join(path, element)
+        if os.path.isdir(element_path):
+            hash_sum = add_folder(element_path, folder_id)
+        else:
+            hash_sum = hash_file(element_path)
+            conn.cursor().execute('insert into file (parent_id, path, hash_sum) values (?, ?, ?)', (parent_folder_id, path, hash_sum))
+
+def check_folder_db(path=None, folder_id=None):
+    folder_id, path = conn.cursor().execute('select id, path from folder where path = ? or id = ?', (path, folder_id)).fetchone()[0]
+    
+    for sub_folder_id, path in conn.cursor().execute('select id, path from folder where parent_id = ?', (folder_id, )).fetchall():
+        if os.path.isfolder(path):
+            check_folder_db(sub_folder_id, path)
+        else:
+            print "folder %s not found" % path
+        
+    for path, hash_sum_db in conn.cursor().execute('select path, hash_sum from file where parent_id = ?', (folder_id, )).fetchall():
+        if hash_file(path) != hash_shum:
+            print "wrong hash for file %s" % path
+        
+
+
+
+
+                                  
